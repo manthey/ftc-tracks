@@ -1,0 +1,237 @@
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.14.1/geo.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script type="text/javascript" src="./tracks.js" defer></script>
+    <style>
+      html,
+      body,
+      body {
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        overflow: hidden;      
+      }
+      #map {
+        width: 70vw;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        overflow: hidden;
+        position: absolute;
+        left: 30vw;
+        top: 0;
+        bottom: 0;
+        right: 100%;
+      }
+      #controls {
+        width: 30vw;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 30vw;
+        bottom: 0;
+        user-select: none;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      #controls span {
+        padding: 5px 5px 5px 0;
+      }
+      #controls.hidden, #controls .hidden {
+        display: none;
+      }
+      .control-group {
+        display: flex;
+        align-items: center;
+        width: calc(100% - 20px);
+      }
+      .control-group>span {
+        width: 35px;
+      }
+      #controls input[type='number'] {
+        width: 55px;
+      }
+      #controls input[type='range'] {
+        flex: 1;
+        min-width: 30px;
+      }
+      #tracks, #docs {
+        width: calc(100% - 20px);
+      }
+      #controls textarea {
+        width: calc(100% - 20px);
+        min-height: 300px;
+        flex-grow: 1;
+        resize: vertical;
+      }
+      .svg-icon {
+        width: 20px;
+        height: 20px;
+      }
+      #info {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        background: rgba(255,255,255,0.75);
+        padding: 2px;
+      }
+      #docs {
+        font-size: small;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="map"
+      class="geojs-map highlight-focus"
+      tabindex="0"
+      style="touch-action: none; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: rgba(0, 0, 0, 0)">
+    </div>
+    <div id="info"></div>
+    <div id="controls">
+      <div>
+        <div class="control-group">
+          <span>Start</span>
+          <input id="start" type="range" min="0" value="0" step="0.001" max="31.780441832027815" />
+          <input id="start-value" type="number" min="0" step="0.001" max="31.780441832027815" />
+        </div>
+        <div class="control-group">
+          <span>End</span>
+          <input id="end" type="range" min="0" value="40" step="0.001" max="31.780441832027815" />
+          <input id="end-value" type="number" min="0" step="0.001" max="31.780441832027815" />
+        </div>      
+      </div>
+      <div class="play-controls">
+        <button id="pause-anim" class="svg-button" title="Pause">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M5 2L9 2L9 18L5 18ZM11 2L15 2L15 18L11 18Z" fill="black" stroke="transparent"/>
+          </svg>
+        </button>
+        <button id="play-anim" class="svg-button" title="Play current track">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M17 10L3 2L3 18Z" fill="black" stroke="transparent"/>
+          </svg>
+        </button>
+        <button id="play-all-anim" class="svg-button" title="Play all tracks">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M20 10L9 3L9 8L0 3L0 17L9 12L9 17Z" fill="black" stroke="transparent"/>
+          </svg>
+        </button>
+      </div>
+      <div>
+        <select id="tracks" multiple="multiple"></select>
+      </div>
+      <div>Path Records:</div>
+      <textarea id="paths" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+Path,BlueBasketGoToNetZone
+start,39.5,63.125,180
+drop,57,60,-130,0.25
+pick1,47.0,48.0,-90.0,0.25,,,1
+sweep1,48,24,-90,0.1,,,1
+pick1,47.0,48.0,-90.0,0.25
+drop,57,60,-130,0.25
+pick2,58.0,48.0,-90.0,0.25,,,1
+sweep2,58,24,-90,0.1,,,1
+pick2,58.0,48.0,-90.0,0.25
+drop,57,60,-130,0.25
+pick3,57,39,-60,0.25,,,1
+sweep3,62.5,24,-85,0.1,,,1
+pick2,58.0,48.0,-90.0,0.25
+drop,57,60,-130,0.25
+Path,RedBasketGoToNetZone
+start,-39.5,-63.125,0
+drop,-58,-60,50,0.25
+pick1,-47.0,-48.0,90.0,0.25,,,1
+sweep1,-48,-24,90,0.1,,,1
+pick1,-47.0,-48.0,90.0,0.25
+drop,-58,-60,50,0.25
+pick2,-58.0,-48.0,90.0,0.25,,,1
+sweep2,-58,-24,90,0.1,,,1
+pick2,-58.0,-48.0,90.0,0.25
+drop,-58,-60,50,0.25
+pick3,-57,-39,120,0.25,,,1
+sweep3,-62.5,-24,95,0.1,,,1
+pick2,-58.0,-48.0,90.0,0.25
+drop,-58,-60,50,0.25
+Path,BlueObservationForwardAlbanyObservationPark
+start,-8.5,63,90
+parkObservationZone,-48,60,0
+Path,BlueObservationForwardDriveToChamberWallApproach
+start,-8.5,63,90
+chamberApproach0,2,30,90,0.3
+chamberBackUp,-8.5,48,90
+wallApproach,-45,48,90
+wallPick,-45,60,90,0.3
+chamberApproach1,0,30,90,0.4
+chamberBackUp,-8.5,48,90,0.7
+parkObservationZone,-48,60,0,1.0
+Path,BlueObservationForwardDriveToChamberObservationPark
+start,-8.5,63,90
+chamberApproach0,2,30,90,0.3
+chamberBackUp,-8.5,48,90
+parkObservationZone,-48,60,0,1.0
+Path,RedObservationForwardAlbanyObservationPark
+start,8.5,-63,-90
+parkObservationZone,48,-60,180
+Path,RedObservationForwardDriveToChamberWallApproach
+start,8.5,-63,-90
+chamberApproach0,-2,-30,-90,0.3
+chamberBackUp,8.5,-48,-90
+wallApproach,45,-48,-90
+wallPick,45,-60,-90,0.3
+chamberApproach1,0,-30,-90,0.4
+chamberBackUp,8.5,-48,-90,0.7
+parkObservationZone,48,-60,180,1.0
+Path,RedObservationForwardDriveToChamberObservationPark
+start,8.5,-63,-90
+chamberApproach0,-2,-30,-90,0.3
+chamberBackUp,8.5,-48,-90
+parkObservationZone,48,-60,180,1.0
+
+Path,BlueObservation2
+start,-8.5,63,90
+chamberApproach0,2,30,90,0.3
+chamberBackUp,-8.5,48,90,,false
+avoidSub,-38,40,90,,false
+spike1Approach,-38,12,90,0.6,false
+spike1Align,-45,12,90,0.5
+wallPick,-45,60,90,0.5
+chamberApproach1,0,30,90,0.4
+chamberBackUp,-8.5,48,90,,false
+wallApproach,-45,48,90
+wallPick,-45,60,90,0.5
+chamberApproach2,-2,30,90,0.3
+chamberBackUp,-8.5,48,90,1.0,false
+parkObservationZone,-48,60,0,1.0
+Path,RedObservation2
+start,8.5,-63,-90
+chamberApproach0,-2,-30,-90,0.3
+chamberBackUp,8.5,-48,-90,,false
+avoidSub,38,-40,-90,,false
+spike1Approach,38,-12,-90,0.6,false
+spike1Align,45,-12,-90,0.5
+wallPick,45,-60,-90,0.5
+chamberApproach1,0,-30,-90,0.4
+chamberBackUp,8.5,-48,-90,,false
+wallApproach,45,-48,-90
+wallPick,45,-60,-90,0.5
+chamberApproach2,2,-30,-90,0.3
+chamberBackUp,8.5,-48,-90,1.0,false
+parkObservationZone,48,-60,180,1.0
+      </textarea>
+      <div id="docs">
+<div>Times are not accurate.</div>
+<div>In the text block, each path starts with a line "Path, &lt;path name&gt;". 
+Each position in a path is a line of the form
+"&lt;name&gt;, &lt;x&gt;, &lt;y&gt;, &lt;heading&gt;, &lt;speed&gt;, &lt;stop&gt;, &lt;delay&gt;, &lt;image number&gt;".  Everything after heading is optional; to skip a column leave it blank.
+<div>To change a setting, add lines "Setting, &lt;setting&gt;, &lt;value&gt;".  Valid settings are maxSpeed (inches per second), defaultSpeed (default speed of driveTo on a scale of 0 to 1), stopTime (seconds to add when the robot stops between path segments), fullSpeedDistance, noStopFullSpeedDistance, minSpeed, timeToSpeedUp (driveTo values), asArrows (true to show an arrow, false to show robot image), matsAs24 (true to treat mats as 24 inches square, false to use actual 23.625 inches), showText, showArrows, showPath (all true or false), playInitialPause, playFinalPause (seconds to wait at start and end of each track when play all is selected).</div>
+<div>To change the field image, add a line "Field, &lt;url&gt;, &lt;left&gt;, &lt;top&gt;, &lt;right&gt;, &lt;bottom&gt;" where the sides are the number of inches from the side of the image to the center of the field.</div>
+<div>To change or add robot images, add lines "Robot, &lt;image number&gt;, &lt;url&gt;, &lt;left&gt;, &lt;front&gt;, &lt;right&gt;, &lt;back&gt;" where the sides are the number of inches from the side of the image to the center of the robot.</div>
+    </div>
+  </body>
+</html>
