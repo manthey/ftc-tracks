@@ -1,5 +1,5 @@
 const defaultSettings = {
-  maxSpeed: 48,  // inches per second
+  maxSpeed: 60,  // inches per second
   defaultSpeed: 0.75,  // driveTo default
   stopTime: 0.5,  // seconds when driveTo stops
   asArrows: false,  // how to render robot
@@ -593,6 +593,9 @@ function main() {
     $('#end').val(0);
     $('#end-value').val(0);
     animate(project);
+  });
+  document.getElementById('expand-docs').addEventListener('click', () => {
+    $('#docs-instructions').toggleClass('show');
   });
 }
 

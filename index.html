@@ -31,13 +31,14 @@
         position: absolute;
         top: 0;
         left: 0;
-        right: 30vw;
+        right: 0;
         bottom: 0;
         user-select: none;
         padding: 10px;
         display: flex;
         flex-direction: column;
         overflow-y: auto;
+        box-sizing: border-box;
       }
       #controls span {
         padding: 5px 5px 5px 0;
@@ -48,7 +49,7 @@
       .control-group {
         display: flex;
         align-items: center;
-        width: calc(100% - 20px);
+        width: 100%;
       }
       .control-group>span {
         width: 35px;
@@ -61,10 +62,10 @@
         min-width: 30px;
       }
       #tracks, #docs {
-        width: calc(100% - 20px);
+        width: 100%;
       }
       #controls textarea {
-        width: calc(100% - 20px);
+        width: 100%;
         min-height: 300px;
         flex-grow: 1;
         resize: vertical;
@@ -81,7 +82,24 @@
         padding: 2px;
       }
       #docs {
-        font-size: small;
+        // font-size: small;
+      }
+      #expand-docs {
+        float: right;
+      }
+      #docs-instructions {
+        display: none;
+      }
+      #docs-instructions.show {
+        display: unset;
+      }
+      #docs-instructions .indent {
+        text-indent: 20px;
+      }
+      #docs-instructions span {
+        background: #EEE;
+        font-family: monospace;
+        padding: 0;
       }
     </style>
   </head>
@@ -225,13 +243,27 @@ chamberBackUp,8.5,-48,-90,1.0,false
 parkObservationZone,48,-60,180,1.0
       </textarea>
       <div id="docs">
-<div>Times are not accurate.</div>
-<div>In the text block, each path starts with a line "Path, &lt;path name&gt;". 
-Each position in a path is a line of the form
-"&lt;name&gt;, &lt;x&gt;, &lt;y&gt;, &lt;heading&gt;, &lt;speed&gt;, &lt;stop&gt;, &lt;delay&gt;, &lt;image number&gt;".  Everything after heading is optional; to skip a column leave it blank.
-<div>To change a setting, add lines "Setting, &lt;setting&gt;, &lt;value&gt;".  Valid settings are maxSpeed (inches per second), defaultSpeed (default speed of driveTo on a scale of 0 to 1), stopTime (seconds to add when the robot stops between path segments), fullSpeedDistance, noStopFullSpeedDistance, minSpeed, timeToSpeedUp (driveTo values), asArrows (true to show an arrow, false to show robot image), matsAs24 (true to treat mats as 24 inches square, false to use actual 23.625 inches), showText, showArrows, showPath (all true or false), playInitialPause, playFinalPause (seconds to wait at start and end of each track when play all is selected).</div>
-<div>To change the field image, add a line "Field, &lt;url&gt;, &lt;left&gt;, &lt;top&gt;, &lt;right&gt;, &lt;bottom&gt;" where the sides are the number of inches from the side of the image to the center of the field.</div>
-<div>To change or add robot images, add lines "Robot, &lt;image number&gt;, &lt;url&gt;, &lt;left&gt;, &lt;front&gt;, &lt;right&gt;, &lt;back&gt;" where the sides are the number of inches from the side of the image to the center of the robot.</div>
+<div>Times are not accurate.<button id="expand-docs">Instructions</button></div>
+<div id="docs-instructions">
+  <div class="indent">In the text block, each path starts with a line <span class="code">Path, &lt;path name&gt;</span>. Each position in a path is a line of the form <span class="code">&lt;name&gt;, &lt;x&gt;, &lt;y&gt;, &lt;heading&gt;, &lt;speed&gt;, &lt;stop&gt;, &lt;delay&gt;, &lt;image number&gt;</span>.  Everything after heading is optional; to skip a column leave it blank.</div>
+  <div class="indent">To change a setting, add lines <span class="code">Setting, &lt;setting&gt;, &lt;value&gt;</span>.  Valid settings are:</div>
+  <div><span class="code">Setting,maxSpeed,60</span>  In inches/second.</div>
+  <div><span class="code">Setting,defaultSpeed,0.75</span>  Range of 0 to 1, relative to maxSpeed.</div>
+  <div><span class="code">Setting,stopTime,0.5</span>  In seconds.  How long it takes the robot to accurately stop between path segments.</div>
+  <div><span class="code">Setting,fullSpeedDistance,12</span>  In inches.  How far away the robot is from a target position when it starts slowing down from maxSpeed.</div>
+  <div><span class="code">Setting,noStopFullSpeedDistance,12</span>  In inches.  How far away the robot is from a target position when it starts slowing down from maxSpeed if it won't stop at the end of the path segment.</div>
+  <div><span class="code">Setting,minSpeed,0.1</span>  Range of 0 to 1, relative to maxSpeed.  What is the slowest the robot will be ordered to move to avoid stalling the motors.</div>
+  <div><span class="code">Setting,timeToSpeedUp,0.5</span>  In seconds.  How quickly is the robot ordered up to maxSpeed.</div>
+  <div><span class="code">Setting,asArrows,false</span>  Set to true to show arrows instead of a robot image.</div>
+  <div><span class="code">Setting,matsAs24,true</span>  Use true to treat mats as if they are 24 inches square; false for the actual 23.625 inch value.</div>
+  <div><span class="code">Setting,showText,true</span>  Show position labels along selected paths.</div>
+  <div><span class="code">Setting,showArrows,true</span>  Show robot orientation arrows along selected paths.</div>
+  <div><span class="code">Setting,showPath,true</span>  Show robot path lines along selected paths.</div>
+  <div><span class="code">Setting,playInitialPause,3.0</span>  Seconds to wait before each path when animating paths.</div>
+  <div><span class="code">Setting,playFinalPause,3.0</span>  Seconds to wait after each path when animating paths.</div>
+  <div class="indent">To change the field image, add a line <span class="code">Field, &lt;url&gt;, &lt;left&gt;, &lt;top&gt;, &lt;right&gt;, &lt;bottom&gt;</span>, where the sides are the number of inches from the side of the image to the center of the field.</div>
+  <div class="indent">To change or add robot images, add lines <span class="code">Robot, &lt;image number&gt;, &lt;url&gt;, &lt;left&gt;, &lt;front&gt;, &lt;right&gt;, &lt;back&gt;</span>, where the sides are the number of inches from the side of the image to the center of the robot.</div>
+</div>
     </div>
   </body>
 </html>
