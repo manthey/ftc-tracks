@@ -12,6 +12,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v2
+      - name: Add sha to tracks.js
+        run: |
+          last_commit_sha=$(git rev-parse --short HEAD)
+          sed -i "s/\.\/tracks\.js/\.\/tracks\.js\?_=$last_commit_sha/" index.html
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
