@@ -245,7 +245,7 @@ parkObservationZone,48,-60,180,1.0
       <div id="docs">
 <div>Times are not accurate.<button id="expand-docs">Instructions</button></div>
 <div id="docs-instructions">
-  <div class="indent">In the text block, each path starts with a line <span class="code">Path, &lt;path name&gt;</span>. Each position in a path is a line of the form <span class="code">&lt;name&gt;, &lt;x&gt;, &lt;y&gt;, &lt;heading&gt;, &lt;speed&gt;, &lt;stop&gt;, &lt;delay&gt;, &lt;image number&gt;</span>.  Everything after heading is optional; to skip a column leave it blank.</div>
+  <div class="indent">Each path starts with a line <span class="code">Path, &lt;path name&gt;</span>. Each position in a path is a line of the form <span class="code">&lt;name&gt;, &lt;x&gt;, &lt;y&gt;, &lt;heading&gt;, &lt;speed&gt;, &lt;stop&gt;, &lt;delay&gt;, &lt;image number&gt;</span>.  Everything after heading is optional; to skip a column leave it blank.</div>
   <div class="indent">To change a setting, add lines <span class="code">Setting, &lt;setting&gt;, &lt;value&gt;</span>.  Valid settings are:</div>
   <div><span class="code">Setting,maxSpeed,60</span>  In inches/second.</div>
   <div><span class="code">Setting,defaultSpeed,0.75</span>  Range of 0 to 1, relative to maxSpeed.</div>
@@ -263,6 +263,7 @@ parkObservationZone,48,-60,180,1.0
   <div><span class="code">Setting,playFinalPause,3.0</span>  Seconds to wait after each path when animating paths.</div>
   <div class="indent">To change the field image, add a line <span class="code">Field, &lt;url&gt;, &lt;left&gt;, &lt;top&gt;, &lt;right&gt;, &lt;bottom&gt;</span>, where the sides are the number of inches from the side of the image to the center of the field.</div>
   <div class="indent">To change or add robot images, add lines <span class="code">Robot, &lt;image number&gt;, &lt;url&gt;, &lt;left&gt;, &lt;front&gt;, &lt;right&gt;, &lt;back&gt;</span>, where the sides are the number of inches from the side of the image to the center of the robot.</div>
+  <div class="indent">Lines starting with <span class="code">#</span> or that do not conform to the above specification are ignored.</div>
 </div>
 <div>See <a href="https://github.com/manthey/ftc-tracks">https://github.com/manthey/ftc-tracks</a>.</div>
     </div>
