@@ -74,6 +74,12 @@ for line in source:  # noqa
                     if c in val:
                         val = val.replace(c, str(consts[c]))
                 actions[curaction]['speed'] = eval(val)
+    waitval = re.match(
+        r'^\s*wait\s*=\s*getRuntime\(\)\s*\+\s*([^,)]+)\s*;',
+        line)
+    if waitval and curaction:
+        actions[curaction]['wait'] = actions[curaction].setdefault('wait', 0) + float(waitval.groups()[0])
+
 
 actions['Start']['position'] = 'start'
 pprint.pprint(consts)
@@ -97,10 +103,16 @@ def track_sequence(name, posname, action, sequences, seq=None):
         seq[-1].extend(pos[posname][actions[action]['position']])
         if 'speed' in actions[action]:
             seq[-1].append(actions[action]['speed'])
+        else:
+            seq[-1].append(None)
         if 'stop' in actions[action]:
-            if len(seq[-1]) < 5:
-                seq[-1].append(None)
             seq[-1].append(actions[action]['stop'])
+        else:
+            seq[-1].append(None)
+    if 'wait' in actions[action] and seq is not None and len(seq):
+        if len(seq[-1]) == 6:
+            seq[-1].append(0)
+        seq[-1][6] += actions[action]['wait']
     for nextact in actions[action]['next']:
         if nextact.startswith('action'):
             nextact = nextact[6:]
@@ -120,6 +132,6 @@ pprint.pprint(sequences)
 for seqname, seq in sequences.items():
     print(f'Path,{seqname}')
     for entry in seq:
-        print(','.join([
+        print((','.join([
             str(val) if not isinstance(val, bool) and val is not None else
-            '' if val is None else str(val).lower() for val in entry]))
+            '' if val is None else str(val).lower() for val in entry])).rstrip(','))
