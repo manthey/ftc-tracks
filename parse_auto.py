@@ -78,7 +78,11 @@ for line in source:  # noqa
         r'^\s*wait\s*=\s*getRuntime\(\)\s*\+\s*([^,)]+)\s*;',
         line)
     if waitval and curaction:
-        actions[curaction]['wait'] = actions[curaction].setdefault('wait', 0) + float(waitval.groups()[0])
+        val = waitval.groups()[0]
+        for c in consts:
+            if c in val:
+                val = val.replace(c, str(consts[c]))
+        actions[curaction]['wait'] = actions[curaction].setdefault('wait', 0) + float(val)
 
 
 actions['Start']['position'] = 'start'
