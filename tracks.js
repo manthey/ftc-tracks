@@ -338,7 +338,7 @@ function parsePaths(project) {
   if (!$('#tracks option:selected').length) {
     $('#tracks option:first').attr('selected', 'selected');
   }
-  $('#tracks').attr('size', Math.max(2, paths.length));
+  $('#tracks').attr('size', Math.max(2, paths.length + 1));
   project.markers.visible(settings.showArrows);
   project.text.visible(settings.showText);
   project.track.visible(settings.showPath);
