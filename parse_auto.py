@@ -7,7 +7,8 @@ import sys
 
 source = []
 for f in sys.argv[1:]:
-    source += open(f).readlines()
+    if not f.startswith('--'):
+        source += open(f).readlines()
 consts = {}
 actions = {}
 pos = {}
@@ -133,9 +134,19 @@ for posname in pos:
     track_sequence(posname, posname, 'Start', sequences)
 pprint.pprint(sequences)
 
+tracktext = []
 for seqname, seq in sequences.items():
-    print(f'Path,{seqname}')
+    tracktext.append(f'Path,{seqname}')
     for entry in seq:
-        print((','.join([
+        tracktext.append((','.join([
             str(val) if not isinstance(val, bool) and val is not None else
             '' if val is None else str(val).lower() for val in entry])).rstrip(','))
+for line in tracktext:
+    print(line)
+if '--write' in sys.argv[1:]:
+    index = open('index.html').read()
+    pos = index.index('<textarea')
+    pos = index.index('>', pos) + 1
+    endpos = index.index('<', pos)
+    index = index[:pos] + '\n' + '\n'.join(tracktext) + '\n      ' + index[endpos:]
+    open('index.html', 'w').write(index)
