@@ -524,6 +524,7 @@ function main() {
   endvalctl.setAttribute('value', project.track.timeRange().endTime);
 
   var query = getQuery();
+  var origPaths = $('#paths').val();
   if (query.paths) {
     try {
   	/* Strip out white space and plusses, then convert ., -, and _ to /, +,
@@ -560,13 +561,13 @@ function main() {
   syncSliderWithInput(startctl, startvalctl);
   syncSliderWithInput(endctl, endvalctl);
 
-  document.getElementById('tracks').addEventListener('input', (event) => {
-    updateSelectedTracks(project);
-  });
-
-  document.getElementById('paths').addEventListener('input', (event) => {
+  function updatePaths() {
     parsePaths(project);
     var src = $('#paths').val();
+    if (src === origPaths) {
+      setQuery({paths: undefined}, true);
+      return;
+    }
     src = src.trim().replace(/ [ ]*\n/g, '\n');
     let comp = pako.deflate(src, {to: 'string', level: 9, raw: true});
     comp = btoa(String.fromCharCode.apply(null, comp));
@@ -575,6 +576,15 @@ function main() {
      * average length of the url by 6 percent. */
     comp = comp.replace(/\//g, '.').replace(/\+/g, '-').replace(/=/g, '_');
     setQuery({paths: comp}, true);
+  }
+
+
+  document.getElementById('tracks').addEventListener('input', (event) => {
+    updateSelectedTracks(project);
+  });
+
+  document.getElementById('paths').addEventListener('input', (event) => {
+    updatePaths();
   });
 
   document.getElementById('play-anim').addEventListener('click', function() {
@@ -594,6 +604,30 @@ function main() {
     $('#end-value').val(0);
     animate(project);
   });
+
+  document.getElementById('reset').addEventListener('click', function() {
+    $('#paths').val(origPaths);
+    updatePaths();
+  });
+
+  document.getElementById('jump').addEventListener('click', function() {
+    if (!$('#tracks option:selected').length) {
+      return;
+    }
+    let selected = $('#tracks').val()[0];
+    const pattern = new RegExp(`^\\s*Path\\s*,\\s*${selected}\\s*$`, 'm');
+    const match = $('#paths').val().match(pattern);
+    if (match) {
+      const position = match.index;
+      const textarea = $('#paths')[0];
+      textarea.focus();
+      textarea.setSelectionRange(position, position + match[0].length);
+      // scroll
+      textarea.blur();
+      textarea.focus();
+    }
+  });
+
   document.getElementById('expand-docs').addEventListener('click', () => {
     $('#docs-instructions').toggleClass('show');
   });
