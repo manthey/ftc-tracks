@@ -3,7 +3,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.14.1/geo.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-    <script type="text/javascript" src="./tracks.js?_=a2b5260" defer></script>
+    <script type="text/javascript" src="./tracks.js?_=4e82ab9" defer></script>
     <style>
       html,
       body,
@@ -67,21 +67,9 @@
       #tracks {
         overflow-x: auto;
       }
-      #tracks option:checked {
-  background-color: #0078d7;
-  color: white;
-  background-image: none;
-}
-
-#tracks option:checked:not(:focus) {
-  background-color: #0078d7;
-  color: white;
-}
-
-#tracks option:checked:hover {
-  background-color: #0078d7;
-  color: white;
-}
+      #tracks option {
+        min-width: max-content;
+      }
       #controls textarea {
         width: 100%;
         min-height: 300px;
