@@ -67,6 +67,16 @@
       #tracks {
         overflow-x: auto;
       }
+      #tracks option:checked::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0; 
+        bottom: 0;
+        background-color: blue; 
+        z-index: -1; 
+      }
       #controls textarea {
         width: 100%;
         min-height: 300px;
