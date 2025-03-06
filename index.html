@@ -3,7 +3,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.14.1/geo.min.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-    <script type="text/javascript" src="./tracks.js?_=4e82ab9" defer></script>
+    <script type="text/javascript" src="./tracks.js?_=ca770ba" defer></script>
     <style>
       html,
       body,
@@ -109,6 +109,22 @@
         font-family: monospace;
         padding: 0;
       }
+.play-controls {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+.svg-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0px 4px 1px 0px;
+}
+
     </style>
   </head>
   <body>
@@ -146,6 +162,18 @@
         <button id="play-all-anim" class="svg-button" title="Play all tracks">
           <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
             <path d="M20 10L9 3L9 8L0 3L0 17L9 12L9 17Z" fill="black" stroke="transparent"/>
+          </svg>
+        </button>
+		<div class="spacer"></div>
+        <button id="jump" class="svg-button" title="Jump to first selected path">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M10 2L18 10L10 18L10 13L2 13L2 7L10 7Z" fill="black" stroke="transparent"/>
+          </svg>
+        </button>
+        <button id="reset" class="svg-button" title="Reset paths">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+			<circle cx="10" cy="10" r="7" fill="transparent" stroke="black" stroke-width="2"/>
+            <path d="M5 5L15 15" stroke="black" stroke-width="2"/>
           </svg>
         </button>
       </div>
