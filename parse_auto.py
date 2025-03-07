@@ -22,6 +22,8 @@ for line in source:  # noqa
             consts[constval.groups()[0]] = eval(constval.groups()[1])
         except Exception:
             pass
+        consts = {key: consts[key]
+                  for key in sorted(consts, key=lambda k: len(k), reverse=True)}
     posval = re.match(
         r'^\s*drivePositions(\w+)\.put\s*\(\s*"([^"]+)"\s*,\s*new\s+double\[\]\s*\{\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^,}]+)\s*\}\s*\)',  # noqa
         line)
