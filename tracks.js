@@ -625,6 +625,7 @@ function main() {
       // scroll
       textarea.blur();
       textarea.focus();
+      console.log(position, match[0].length);
       textarea.setSelectionRange(position, position + match[0].length);
     }
   });
