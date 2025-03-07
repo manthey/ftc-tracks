@@ -621,7 +621,7 @@ function main() {
       const position = match.index;
       const textarea = $('#paths')[0];
       textarea.focus();
-      textarea.setSelectionRange(position, position + match[0].length);
+      textarea.setSelectionRange(position, position);
       // scroll
       textarea.blur();
       textarea.focus();
