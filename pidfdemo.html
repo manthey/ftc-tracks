@@ -47,6 +47,7 @@
                 <select id="mode">
                     <option value="encoder">Run with Encoder</option>
                     <option value="position">Run to Position</option>
+                    <option value="without">Run without Encoder</option>
                 </select>
             </label>
             <label>Target: <input type="number" id="target" value="1.0" step="0.1"></label>
@@ -112,6 +113,7 @@ class Motor {
 
         this.velocity += this.acceleration * dt;
         this.position += this.velocity * dt;
+        console.log(controlOutput, motorTorque, normalizedControl, alpha, dt, this.velocity); // DWM::
         
         // Velocity limiting (motor can't exceed physical limits)
         this.velocity = Math.max(-this.maxTicksPerSec, Math.min(this.maxTicksPerSec, this.velocity));
@@ -181,24 +183,28 @@ function simulate() {
 
         // Update control at 20Hz
         if (time - lastControlTime >= controlDt) {
-            if (mode === 'position') {
-                // Target is position in ticks
-                const perror = ptarget - Math.floor(motor.position);
-                let pspeed = perror * Math.max(pp, 1) / motor.maxTicksPerSec;
-                target = Math.max(-target, Math.min(target, pspeed));
-                console.log(perror, pspeed, target);
-            }
-            // Target power [-1,1] -> target velocity in ticks/sec
-            targetValue = target * motor.maxTicksPerSec * motor.speedFactor;
-            actualValue = motor.velocity;
-            const error = (Math.floor(targetValue / 20) - Math.floor(actualValue / 20)) * 20;
-            
-            // Feedforward: target power -> control output
-            const feedforward = target * motor.maxTicksPerSec * motor.speedFactor;
-            nextControlOutput = controller.compute(error, feedforward, controlDt);
-            // Clamp to full range
-            nextControlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, nextControlOutput)));
-            
+            if (mode === 'without') {
+                nextControlOutput = Math.round(motor.maxControlOutput * target);
+                targetValue = target * motor.maxTicksPerSec;
+                actualValue = motor.velocity;
+            } else {
+                if (mode === 'position') {
+                    // Target is position in ticks
+                    const perror = ptarget - Math.floor(motor.position);
+                    let pspeed = perror * Math.max(pp, 1) / motor.maxTicksPerSec;
+                    target = Math.max(-target, Math.min(target, pspeed));
+                }
+                // Target power [-1,1] -> target velocity in ticks/sec
+                targetValue = target * motor.maxTicksPerSec * motor.speedFactor;
+                actualValue = motor.velocity;
+                const error = (Math.floor(targetValue / 20) - Math.floor(actualValue / 20)) * 20;
+                
+                // Feedforward: target power -> control output
+                const feedforward = target * motor.maxTicksPerSec * motor.speedFactor;
+                nextControlOutput = controller.compute(error, feedforward, controlDt);
+                // Clamp to full range
+                nextControlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, nextControlOutput)));
+            } 
             lastControlTime = time;
             
             if (step < 100) {
@@ -210,6 +216,7 @@ function simulate() {
             controlOutput = nextControlOutput;
         }
         
+        console.log(controlOutput);
         // Always update motor physics
         motor.update(controlOutput, simDt);
         
