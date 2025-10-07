@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FTC PIDF Motor Control Simulator</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .controls { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
+        .control-group { border: 1px solid #ccc; padding: 10px; border-radius: 5px; min-width: 180px; }
+        .control-group h3 { margin: 0 0 10px 0; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="number"] { width: 70px; }
+        select { width: 120px; }
+        button { padding: 8px 16px; margin: 5px; }
+        canvas { border: 1px solid #ccc; margin-top: 10px; }
+        .info { margin-top: 10px; font-size: 12px; color: #666; }
+        .debug { margin-top: 10px; font-family: monospace; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <h1>FTC PIDF Motor Control Simulator</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <h3>PIDF Gains</h3>
+            <label>P: <input type="number" id="p" value="18" step="0.1"></label>
+            <label>I: <input type="number" id="i" value="0" step="0.1"></label>
+            <label>D: <input type="number" id="d" value="0" step="0.1"></label>
+            <label>F: <input type="number" id="f" value="10" step="0.1"></label>
+            <h3>Position P Gain</h3>
+            <label>P: <input type="number" id="pp" value="10" step="0.1"></label>
+        </div>
+        
+        <div class="control-group">
+            <h3>Motor Physics</h3>
+            <label>Motor Inertia kg-m2: <input type="number" id="motorInertia" value="0.00022" step="0.00001"></label>
+            <!-- 0.01 is recommended by one estimatee, 0.001 by another -->
+            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.001" step="0.0001"></label>
+            <!-- torque constant is the stall torque divided by the stall current -->
+            <label>Torque Const N-m/A: <input type="number" id="torqueConst" value="0.0117" step="0.0001"></label>
+            <label>Back-EMF RPM/V: <input type="number" id="backEmf" value="224" step="0.1"></label>
+            <label>Max Ticks/sec: <input type="number" id="maxTicksPerSec" value="2800" step="100"></label>
+        </div>
+        
+        <div class="control-group">
+            <h3>Control</h3>
+            <label>Mode: 
+                <select id="mode">
+                    <option value="encoder">Run with Encoder</option>
+                    <option value="position">Run to Position</option>
+                    <option value="without">Run without Encoder</option>
+                </select>
+            </label>
+            <label>Target: <input type="number" id="target" value="1.0" step="0.1"></label>
+            <label>Position: <input type="number" id="ptarget" value="2000" step="1"></label>
+            <label>Duration (s): <input type="number" id="duration" value="3" step="0.1"></label>
+        </div>
+    </div>
+    <div>
+    <canvas id="plot" width="800" height="400"></canvas>
+    </div>
+    
+    <button onclick="simulate()">Run Simulation</button>
+    <button onclick="clearPlot()">Clear</button>
+    
+    <div class="info">
+        Blue: Actual | Red: Target | Green: Control Output/100 | 20Hz updates
+    </div>
+    <div class="debug" id="debug"></div>
+    
+    <script>
+class Motor {
+    constructor(motorInertia, loadIntertia, torqueConst, backEmf, maxTicksPerSec) {
+        this.motorInertia = motorInertia;
+        this.loadIntertia = loadIntertia;
+        this.torqueConst = torqueConst;
+        this.backEmf = backEmf;
+        this.maxTicksPerSec = maxTicksPerSec;
+        this.speedFactor = 0.8;
+        this.maxControlOutput = 32767;
+        this.maxVoltage = 12;
+        this.lastTorque = 0;
+        this.torqueElecConstant = 0.00015 / 2.18;  // 150 uH / ohm
+        this.reset();
+    }
+    
+    reset() {
+        this.velocity = 0; // ticks per second
+        this.position = 0; // ticks
+        this.acceleration = 0;
+    }
+    
+    update(controlOutput, dt) {
+        // Convert control output to "force" that drives velocity
+        const normalizedControl = controlOutput / this.maxControlOutput;
+        const maxVel = this.maxTicksPerSec * this.speedFactor;
+        
+        let motorTorque = this.torqueConst * normalizedControl * this.maxTicksPerSec;
+        motorTorque -= this.backEmf / this.maxVoltage * this.velocity / maxVel;
+        // simple inductence delay;
+        const alpha = dt / (this.torqueElecConstant + dt);
+        motorTorque = motorTorque * alpha + this.lastTorque * (1 - alpha);
+        this.lastTorque = motorTorque;
+        // dodgy constants
+        let frictionTorque = 0;
+        /*
+        if (Math.abs(this.velocity) < 20) {
+            frictionTorque = Math.min(0.2, Math.abs(motorTorque)) * Math.sign(motorTorque);
+        } else {
+            frictionTorque = 0.1 * Math.sign(motorTorque) + 0.005 * this.velocity / maxVel * 500;
+        }
+        */
+        this.acceleration = (motorTorque - frictionTorque) / (this.motorInertia + this.loadIntertia);
+
+        this.velocity += this.acceleration * dt;
+        this.position += this.velocity * dt;
+        console.log(controlOutput, motorTorque, normalizedControl, alpha, dt, this.velocity); // DWM::
+        
+        // Velocity limiting (motor can't exceed physical limits)
+        this.velocity = Math.max(-this.maxTicksPerSec, Math.min(this.maxTicksPerSec, this.velocity));
+    }
+}
+
+class PIDFController {
+    constructor(p, i, d, f) {
+        this.kp = p; this.ki = i; this.kd = d; this.kf = f;
+        this.reset();
+    }
+    
+    reset() {
+        this.integral = 0;
+        this.lastError = 0;
+    }
+    
+    compute(error, feedforward, dt) {
+        this.integral += error * dt;
+        
+        // Integral windup protection
+        const maxIntegral = 32767;
+        this.integral = Math.max(-maxIntegral, Math.min(maxIntegral, this.integral));
+        
+        const derivative = dt > 0 ? (error - this.lastError) / dt : 0;
+        this.lastError = error;
+        
+        return this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward;
+    }
+}
+
+function simulate() {
+    const p = +document.getElementById('p').value;
+    const i = +document.getElementById('i').value;
+    const d = +document.getElementById('d').value;
+    const f = +document.getElementById('f').value;
+    const pp = +document.getElementById('pp').value;
+    const motorInertia = +document.getElementById('motorInertia').value;
+    const loadIntertia = +document.getElementById('loadInertia').value;
+    const torqueConst = +document.getElementById('torqueConst').value;
+    const backEmf = +document.getElementById('backEmf').value;
+    const maxTicksPerSec = +document.getElementById('maxTicksPerSec').value;
+    const mode = document.getElementById('mode').value;
+    const etarget = +document.getElementById('target').value;
+    const ptarget = +document.getElementById('ptarget').value;
+    const duration = +document.getElementById('duration').value;
+    
+    const motor = new Motor(motorInertia, loadIntertia, torqueConst, backEmf, maxTicksPerSec);
+    const controller = new PIDFController(p, i, d, f);
+    
+    const controlDt = 0.05; // 20Hz control updates
+    const simDt = 0.001; // 1ms simulation timestep
+    const steps = Math.floor(duration / simDt);
+    const data = [];
+    
+    let lastControlTime = 0;
+    let controlOutput = 0;
+    let nextControlOutput = 0;
+    let targetValue = 0;
+    let actualValue = 0;
+    
+    let debugInfo = `Max vel: ${(motor.maxTicksPerSec * motor.speedFactor).toFixed(0)} ticks/sec\n`;
+    
+    for (let step = 0; step < steps; step++) {
+        let target = etarget; 
+        const time = step * simDt;
+
+        // Update control at 20Hz
+        if (time - lastControlTime >= controlDt) {
+            if (mode === 'without') {
+                nextControlOutput = Math.round(motor.maxControlOutput * target);
+                targetValue = target * motor.maxTicksPerSec;
+                actualValue = motor.velocity;
+            } else {
+                if (mode === 'position') {
+                    // Target is position in ticks
+                    const perror = ptarget - Math.floor(motor.position);
+                    let pspeed = perror * Math.max(pp, 1) / motor.maxTicksPerSec;
+                    target = Math.max(-target, Math.min(target, pspeed));
+                }
+                // Target power [-1,1] -> target velocity in ticks/sec
+                targetValue = target * motor.maxTicksPerSec * motor.speedFactor;
+                actualValue = motor.velocity;
+                const error = (Math.floor(targetValue / 20) - Math.floor(actualValue / 20)) * 20;
+                
+                // Feedforward: target power -> control output
+                const feedforward = target * motor.maxTicksPerSec * motor.speedFactor;
+                nextControlOutput = controller.compute(error, feedforward, controlDt);
+                // Clamp to full range
+                nextControlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, nextControlOutput)));
+            } 
+            lastControlTime = time;
+            
+            if (step < 100) {
+                debugInfo += `t=${time.toFixed(3)}: target=${targetValue.toFixed(0)}, actual=${actualValue.toFixed(0)}, output=${nextControlOutput.toFixed(0)}\n`;
+            }
+        }
+        /* controller delay */
+        if (time - lastControlTime >= controlDt * 0.05) {
+            controlOutput = nextControlOutput;
+        }
+        
+        console.log(controlOutput);
+        // Always update motor physics
+        motor.update(controlOutput, simDt);
+        
+        // Record data every 10ms for plotting
+        if (step % 10 === 0) {
+            data.push({
+                time: time,
+                target: targetValue,
+                actual: actualValue,
+                output: controlOutput
+            });
+        }
+    }
+    
+    document.getElementById('debug').textContent = debugInfo;
+    plotResults(data);
+}
+
+function plotResults(data) {
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (!data.length) return;
+    
+    const margin = 50;
+    const width = canvas.width - 2 * margin;
+    const height = canvas.height - 2 * margin;
+    
+    const maxTime = data[data.length - 1].time;
+    const values = data.flatMap(d => [d.target, d.actual]);
+    const minVal = Math.min(...values, 0);
+    const maxVal = Math.max(...values, 1);
+    const range = maxVal - minVal || 1;
+    
+    console.log(`Plot range: ${minVal} to ${maxVal}, ${data.length} points`);
+    
+    const scaleX = t => margin + (t / maxTime) * width;
+    const scaleY = v => margin + height - ((v - minVal) / range) * height;
+    
+    // Draw axes
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(margin, margin);
+    ctx.lineTo(margin, margin + height);
+    ctx.lineTo(margin + width, margin + height);
+    ctx.stroke();
+    
+    // Draw target (red dashed)
+    if (data.length > 1) {
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(scaleX(data[0].time), scaleY(data[0].target));
+        for (let i = 1; i < data.length; i++) {
+            ctx.lineTo(scaleX(data[i].time), scaleY(data[i].target));
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    
+    // Draw actual (blue solid)
+    if (data.length > 1) {
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(scaleX(data[0].time), scaleY(data[0].actual));
+        for (let i = 1; i < data.length; i++) {
+            ctx.lineTo(scaleX(data[i].time), scaleY(data[i].actual));
+        }
+        ctx.stroke();
+    }
+    
+    // Draw control output scaled down (green)
+    if (data.length > 1) {
+        ctx.strokeStyle = 'green';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(scaleX(data[0].time), scaleY(data[0].output / 30));
+        for (let i = 1; i < data.length; i++) {
+            ctx.lineTo(scaleX(data[i].time), scaleY(data[i].output / 30));
+        }
+        ctx.stroke();
+    }
+    
+    // Labels
+    ctx.fillStyle = '#333';
+    ctx.font = '12px Arial';
+    ctx.fillText(`Range: ${minVal.toFixed(0)} to ${maxVal.toFixed(0)}`, margin, 20);
+    ctx.fillText(`Time: 0 to ${maxTime.toFixed(1)}s`, margin, height + margin + 15);
+}
+
+function clearPlot() {
+    const canvas = document.getElementById('plot');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+setTimeout(simulate, 100);
+// Ziegler-Nichols and wiggle tuning
+    </script>
+</body>
+</html>
