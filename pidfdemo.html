@@ -165,6 +165,7 @@ class PIDFController {
         const derivative = dt > 0 ? (error - this.lastError) / dt : 0;
         this.lastError = error;
 
+        // console.log(this.kp, error, this.ki, this.integral, this.kd, derivative, this.kf, feedforward, dt, this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward);
         return this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward;
     }
 }
