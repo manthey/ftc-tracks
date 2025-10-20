@@ -12,6 +12,7 @@
         input[type="number"] { width: 70px; }
         button { padding: 8px 16px; }
         #plot { width: 100%; height: 400px; margin-top: 10px; } 
+        .hidden { display: none; }
     </style>
     <script src="https://cdn.plot.ly/plotly-3.1.1.min.js"></script>
 </head>
@@ -57,7 +58,35 @@
             <label>Duration (s): <input type="number" id="duration" value="3" step="0.1"></label>
         </div>
         <div class="control-group control-button">
-        <button onclick="simulate()">Run Simulation</button>
+            <div>
+                <button onclick="simulate()">Run Simulation</button>
+            </div>
+            <div>
+                <table id="velocitysettle" class="hidden">
+                    <tr><th>Velocity</th><th>Settle</th></tr>
+                    <tr><td>0.1%</td><td></td></tr>
+                    <tr><td>0.2%</td><td></td></tr>
+                    <tr><td>0.5%</td><td></td></tr>
+                    <tr><td>1.0%</td><td></td></tr>
+                    <tr><td>2.0%</td><td></td></tr>
+                    <tr><td>5.0%</td><td></td></tr>
+                    <tr><td>10.0%</td><td></td></tr>
+                    <tr><td>20.0%</td><td></td></tr>
+                    <tr><td>50.0%</td><td></td></tr>
+                </table>
+                <table id="positionsettle" class="hidden">
+                    <tr><th>Position</th><th>Settle</th></tr>
+                    <tr><td>0</td><td></td></tr>
+                    <tr><td>1</td><td></td></tr>
+                    <tr><td>2</td><td></td></tr>
+                    <tr><td>5</td><td></td></tr>
+                    <tr><td>10</td><td></td></tr>
+                    <tr><td>20</td><td></td></tr>
+                    <tr><td>50</td><td></td></tr>
+                    <tr><td>100</td><td></td></tr>
+                    <tr><td>200</td><td></td></tr>
+                </table>
+            </div>
         </div>
     </div>
     <div id="plot">
@@ -232,7 +261,8 @@ function plotResults(data) {
         {x: t, y: data.map(d => d.target), name: 'target V', line: {color: 'blue', dash: 'dash'}},
         {x: t, y: data.map(d => d.position), name: 'position', line: {color: 'red'}, yaxis: 'y2'}
     ];
-    if (data[0]?.targetPosition !== undefined) {
+    const position = (data[0]?.targetPosition !== undefined);
+    if (position) {
         traces.push({x: t, y: data.map(d => d.targetPosition), name: 'target P', line: {color: 'red', dash: 'dash'}, yaxis: 'y2'});
     }
     Plotly.newPlot('plot', traces, {
@@ -243,10 +273,31 @@ function plotResults(data) {
         yaxis3: {range: [-1, 1], overlaying: 'y', showticklabels: false, showgrid: false, zerolinecolor: '#ddd'},
         font: {family: 'sans-serif'}
     });
+    const v = document.getElementById('velocitysettle');
+    const p = document.getElementById('positionsettle');
+    v.classList.toggle('hidden', position);
+    p.classList.toggle('hidden', !position);
+    [...(position ? p : v).rows].slice(1).forEach(r => {
+        const val = parseFloat(r.cells[0].textContent);
+        let dur = 0;
+        data.forEach(d => {
+            if (position && Math.abs(d.position - d.targetPosition) > val) {
+                dur = d.time;
+            }
+            if (!position && Math.abs(d.actual / d.target - 1) * 100 > val) {
+                dur = d.time;
+            }
+        });
+        if (dur == data[data.length - 1].time) {
+            r.cells[1].textContent = ''
+        } else{
+            r.cells[1].textContent = dur.toFixed(3) + 's';
+        }
+    });
 }
 
+
 setTimeout(simulate, 1);
-// Ziegler-Nichols and wiggle tuning
     </script>
 </body>
 </html>
