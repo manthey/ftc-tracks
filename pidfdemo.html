@@ -34,7 +34,7 @@
             <h3>Physical</h3>
             <label>Motor Inertia kg-m2: <input type="number" id="motorInertia" value="0.00022" step="0.00001"></label>
             <!-- 0.01 is recommended by one estimatee, 0.001 by another -->
-            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.001" step="0.0001"></label>
+            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.003" step="0.0001"></label>
             <!-- torque constant is the stall torque divided by the stall current -->
             <label title="stall torque divided by the stall current">Torque Const N-m/A: <input type="number" id="torqueConst" value="0.0117" step="0.0001"></label>
             <label>Back-EMF RPM-V: <input type="number" id="backEmf" value="224" step="0.1"></label>
@@ -53,6 +53,7 @@
                     <option value="without">Run without Encoder</option>
                 </select>
             </label>
+            <label>Start: <input type="number" id="start" value="0.0" step="0.1"></label>
             <label>Target: <input type="number" id="target" value="1.0" step="0.1"></label>
             <label>Position: <input type="number" id="ptarget" value="2000" step="1"></label>
             <label>Duration (s): <input type="number" id="duration" value="3" step="0.1"></label>
@@ -185,11 +186,14 @@ function simulate() {
     const couloumbFriction = +document.getElementById('couloumbFriction').value;
     const viscousFriction = +document.getElementById('viscousFriction').value;
     const mode = document.getElementById('mode').value;
+    const start = +document.getElementById('start').value;
     const etarget = +document.getElementById('target').value;
     const ptarget = +document.getElementById('ptarget').value;
     const duration = +document.getElementById('duration').value;
 
     const motor = new Motor(motorInertia, loadIntertia, torqueConst, backEmf, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction);
+    motor.velocity = start * motor.maxTicksPerSec * motor.speedFactor;
+    motor.lastTorque = motor.torqueConst * start * motor.maxTicksPerSec - motor.backEmf / motor.maxVoltage * start;
     const controller = new PIDFController(p, i, d, f);
 
     const controlDt = 0.05; // 20Hz control updates
@@ -251,10 +255,10 @@ function simulate() {
         dataEntry.output = nextControlOutput;
         data.push(dataEntry);
     }
-    plotResults(data);
+    plotResults(data, motor);
 }
 
-function plotResults(data) {
+function plotResults(data, motor) {
     const t = data.map(d => d.time);
     const traces = [
         {x: t, y: data.map(d => d.output/32767), name: 'Control', line: {color: 'green'}, yaxis: 'y3'},
@@ -285,7 +289,7 @@ function plotResults(data) {
             if (position && Math.abs(d.position - d.targetPosition) > val) {
                 dur = d.time;
             }
-            if (!position && Math.abs(d.actual / d.target - 1) * 100 > val) {
+            if (!position && Math.abs(d.actual - d.target) * 100 / motor.maxTicksPerSec / motor.speedFactor > val) {
                 dur = d.time;
             }
         });
