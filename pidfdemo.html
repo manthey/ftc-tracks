@@ -202,8 +202,8 @@ function simulate() {
     const data = [];
 
     let lastControlTime = 0;
-    let controlOutput = start;
-    let nextControlOutput = start;
+    let controlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, start * motor.maxControlOutput * motor.speedFactor)));
+    let nextControlOutput = controlOutput;
     let targetValue = 0;
     let actualValue = 0;
 
