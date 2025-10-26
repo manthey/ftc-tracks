@@ -136,13 +136,18 @@ class Motor {
         }
         this.lastTorque = motorTorque;
         let frictionTorque = 0;
-        if (Math.abs(this.velocity) < 20) {
+        if (this.velocity === 0) {
+            this.velocity = 0;
             frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
         } else {
             frictionTorque = this.couloumbFriction * Math.sign(motorTorque) + this.viscousFriction * this.velocity / this.maxTicksPerSec * (this.freeSpeed / 60 * Math.PI * 2);
         }
         this.acceleration = (motorTorque - frictionTorque) / (this.motorInertia + this.loadIntertia);
-
+        // stopping still isn't quite right
+        if (Math.abs(this.velocity) < 10 && this.acceleration * this.velocity < 0 && (this.velocity + this.acceleration * dt) * this.velocity > 0) {
+            this.acceleration = 0;
+            this.velocity = 0;
+        }
         this.velocity += this.acceleration * dt;
         this.position += this.velocity * dt;
 
@@ -158,6 +163,7 @@ class PIDFController {
 
     reset() {
         this.integral = 0;
+        this.lastDerivative = 0;
         this.lastError = 0; 
     }
 
@@ -168,10 +174,14 @@ class PIDFController {
         const maxIntegral = 32767;
         this.integral = Math.max(-maxIntegral, Math.min(maxIntegral, this.integral));
         const derivative = dt > 0 && this.lastError !== undefined ? (error - this.lastError) / dt : 0;
+        const deriv = derivative * 0.4 + this.lastDerivative * 0.6;
+        this.lastDerivative = derivative;
         this.lastError = error;
 
-        // console.log(this.kp, error, this.ki, this.integral, this.kd, derivative, this.kf, feedforward, dt, this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward);
-        return this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward;
+        console.log(this.kp, error, this.ki, this.integral, this.kd, derivative, this.kf, feedforward, dt, this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward);
+        let control = this.kp * error + this.ki * this.integral + this.kd * deriv + this.kf * feedforward;
+
+        return control
     }
 }
 
@@ -243,7 +253,9 @@ function simulate() {
             if (mode === 'without') {
                 nextControlOutput = Math.round(motor.maxControlOutput * target);
             } else {
-                const error = (Math.floor(targetValue / 20) - Math.floor(actualValue / 20)) * 20;
+                const intVelocity = (Math.floor(motor.position) - (motor.lastIntPosition || 0));
+                motor.lastIntPosition = Math.floor(motor.position);
+                const error = (Math.floor(targetValue / 20) - intVelocity) * 20;
                 // Feedforward: target power -> control output
                 const feedforward = target * motor.maxTicksPerSec * motor.speedFactor;
                 nextControlOutput = controller.compute(error, feedforward, controlDt);
