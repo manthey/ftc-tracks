@@ -22,10 +22,10 @@
     <div class="controls">
         <div class="control-group">
             <h3>Velocity PIDF</h3>
-            <label>P: <input type="number" id="p" value="18" step="0.1"></label>
-            <label>I: <input type="number" id="i" value="0" step="0.1"></label>
+            <label>P: <input type="number" id="p" value="10" step="0.1"></label>
+            <label>I: <input type="number" id="i" value="3" step="0.1"></label>
             <label>D: <input type="number" id="d" value="0" step="0.1"></label>
-            <label>F: <input type="number" id="f" value="10" step="0.1"></label>
+            <label>F: <input type="number" id="f" value="5" step="0.1"></label>
             <h3>Position P</h3>
             <label>P: <input type="number" id="pp" value="10" step="0.1"></label>
         </div>
@@ -38,12 +38,13 @@
             <label>Stall Torque N-m: <input type="number" id="stallTorque" value="0.105" step="0.0001"></label>
             <label>Stall Current A: <input type="number" id="stallCurrent" value="8.5" step="0.1"></label>
             <label>No-Load Current A: <input type="number" id="noLoadCurrent" value="0.4" step="0.1"></label>
-            <label>Supply Voltage V: <input type="number" id="supplyVoltage" value="12" step="0.1"></label>
             <label>Free Speed RPM: <input type="number" id="freeSpeed" value="6000" step="0.1"></label>
             <label>Max Ticks/sec: <input type="number" id="maxTicksPerSec" value="2800" step="100"></label>
             <label>Static Friction: <input type="number" id="staticFriction" value="0.2" step="0.01"></label>
             <label>Coulomb Friction: <input type="number" id="couloumbFriction" value="0.1" step="0.01"></label>
             <label>Viscous Friction: <input type="number" id="viscousFriction" value="0.005" step="0.0001"></label>
+            <label>Supply Voltage V: <input type="number" id="supplyVoltage" value="12" step="0.1"></label>
+            <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance &#x3A9;: <input type="number" id="supplyResistence" value="0.06" step="0.01"></label>
         </div>
 
         <div class="control-group">
@@ -96,7 +97,7 @@
     </div>
     <script>
 class Motor {
-    constructor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction) {
+    constructor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistence) {
         this.motorInertia = motorInertia;
         this.loadIntertia = loadIntertia;
         this.stallCurrent = stallCurrent;
@@ -107,11 +108,12 @@ class Motor {
         this.staticFriction = staticFriction;
         this.couloumbFriction = couloumbFriction;
         this.viscousFriction = viscousFriction;
-        this.speedFactor = 0.8;
+        this.speedFactor = 0.85;
         this.maxControlOutput = 32767;
         this.maxVoltage = supplyVoltage;
         this.lastTorque = 0;
         this.torqueElecConstant = 0.00015 / 2.18;  // 150 uH / ohm
+        this.supplyResistence = supplyResistence;
         this.reset();
     }
 
@@ -122,12 +124,17 @@ class Motor {
     }
 
     update(controlOutput, dt) {
-        const normalizedControl = controlOutput / this.maxControlOutput;
+        let normalizedControl = controlOutput / this.maxControlOutput;
 
         let backEMF = (1 - this.noLoadCurrent / this.stallCurrent) * this.velocity / this.maxTicksPerSec;
         if (backEMF * this.velocity < 0) {
             backEMF = 0;
         }
+        // handle battery sag
+        let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
+        console.log('A');
+        normalizedControl *= (this.maxVoltage - drawCurrent * this.supplyResistence) / this.maxVoltage;
+        // calculate torque
         let motorTorque = this.stallTorque * (normalizedControl - backEMF) * this.maxTicksPerSec / 2 / Math.PI;
         // simple inductance delay;
         const alpha = dt / (this.torqueElecConstant + dt);
@@ -178,7 +185,7 @@ class PIDFController {
         this.lastDerivative = derivative;
         this.lastError = error;
 
-        console.log(this.kp, error, this.ki, this.integral, this.kd, derivative, this.kf, feedforward, dt, this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward);
+        // console.log(this.kp, error, this.ki, this.integral, this.kd, derivative, this.kf, feedforward, dt, this.kp * error + this.ki * this.integral + this.kd * derivative + this.kf * feedforward);
         let control = this.kp * error + this.ki * this.integral + this.kd * deriv + this.kf * feedforward;
 
         return control
@@ -197,6 +204,7 @@ function simulate() {
     const stallTorque = +document.getElementById('stallTorque').value;
     const noLoadCurrent = +document.getElementById('noLoadCurrent').value;
     const supplyVoltage = +document.getElementById('supplyVoltage').value;
+    const supplyResistence = +document.getElementById('supplyResistence').value;
     const freeSpeed = +document.getElementById('freeSpeed').value;
     const maxTicksPerSec = +document.getElementById('maxTicksPerSec').value;
     const staticFriction = +document.getElementById('staticFriction').value;
@@ -208,7 +216,7 @@ function simulate() {
     const ptarget = +document.getElementById('ptarget').value;
     const duration = +document.getElementById('duration').value;
 
-    const motor = new Motor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction);
+    const motor = new Motor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistence);
     motor.velocity = start * motor.maxTicksPerSec * motor.speedFactor;
     motor.lastTorque = undefined;
     const controller = new PIDFController(p, i, d, f);
