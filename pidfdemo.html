@@ -132,7 +132,6 @@ class Motor {
         }
         // handle battery sag
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
-        console.log('A');
         normalizedControl *= (this.maxVoltage - drawCurrent * this.supplyResistance) / this.maxVoltage;
         // calculate torque
         let motorTorque = this.stallTorque * (normalizedControl - backEMF) * this.maxTicksPerSec / 2 / Math.PI;
