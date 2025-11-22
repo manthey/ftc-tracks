@@ -32,17 +32,17 @@
 
         <div class="control-group">
             <h3>Physical</h3>
-            <label>Motor Inertia kg-m2: <input type="number" id="motorInertia" value="0.00022" step="0.00001"></label>
+            <label>Motor Inertia kg-m2: <input type="number" id="motorInertia" value="0.0000022" step="0.0000001"></label>
             <!-- 0.01 is recommended by one estimatee, 0.001 by another -->
-            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.003" step="0.0001"></label>
+            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.00003" step="0.00001"></label>
             <label>Stall Torque N-m: <input type="number" id="stallTorque" value="0.105" step="0.0001"></label>
             <label>Stall Current A: <input type="number" id="stallCurrent" value="8.5" step="0.1"></label>
             <label>No-Load Current A: <input type="number" id="noLoadCurrent" value="0.4" step="0.1"></label>
             <label>Free Speed RPM: <input type="number" id="freeSpeed" value="6000" step="0.1"></label>
             <label>Max Ticks/sec: <input type="number" id="maxTicksPerSec" value="2800" step="100"></label>
-            <label>Static Friction: <input type="number" id="staticFriction" value="0.2" step="0.01"></label>
-            <label>Coulomb Friction: <input type="number" id="couloumbFriction" value="0.1" step="0.01"></label>
-            <label>Viscous Friction: <input type="number" id="viscousFriction" value="0.005" step="0.0001"></label>
+            <label>Static Friction: <input type="number" id="staticFriction" value="0.1" step="0.01"></label>
+            <label>Coulomb Friction: <input type="number" id="couloumbFriction" value="0.0015" step="0.0001"></label>
+            <label>Viscous Friction: <input type="number" id="viscousFriction" value="0.000005" step="0.00000001"></label>
             <label>Supply Voltage V: <input type="number" id="supplyVoltage" value="12" step="0.1"></label>
             <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance &#x3A9;: <input type="number" id="supplyResistance" value="0.06" step="0.01"></label>
         </div>
@@ -97,9 +97,9 @@
     </div>
     <script>
 class Motor {
-    constructor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance) {
+    constructor(motorInertia, loadInertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance) {
         this.motorInertia = motorInertia;
-        this.loadIntertia = loadIntertia;
+        this.loadInertia = loadInertia;
         this.stallCurrent = stallCurrent;
         this.noLoadCurrent = noLoadCurrent;
         this.stallTorque = stallTorque;
@@ -124,17 +124,19 @@ class Motor {
     }
 
     update(controlOutput, dt) {
+        // normalizedControl and normalizedVelocity are in the range of [-1, 1]
         let normalizedControl = controlOutput / this.maxControlOutput;
+        let normalizedVelocity =  this.velocity / this.maxTicksPerSec; 
+        let velRadPerSec = normalizedVelocity * (this.freeSpeed / 60 * Math.PI * 2);
 
-        let backEMF = (1 - this.noLoadCurrent / this.stallCurrent) * this.velocity / this.maxTicksPerSec;
-        if (backEMF * this.velocity < 0) {
-            backEMF = 0;
-        }
+        // this is velRadPerSec * Ke / maxVoltage, since 
+        // Ke = maxVoltage / (this.freeSpeed / 60 * Math.PI * 2)
+        let backEMF = normalizedVelocity;
         // handle battery sag
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
         normalizedControl *= (this.maxVoltage - drawCurrent * this.supplyResistance) / this.maxVoltage;
         // calculate torque
-        let motorTorque = this.stallTorque * (normalizedControl - backEMF) * this.maxTicksPerSec / 2 / Math.PI;
+        let motorTorque = this.stallTorque * (normalizedControl - backEMF); 
         // simple inductance delay;
         const alpha = dt / (this.torqueElecConstant + dt);
         if (this.lastTorque !== undefined) {
@@ -142,18 +144,18 @@ class Motor {
         }
         this.lastTorque = motorTorque;
         let frictionTorque = 0;
-        if (this.velocity === 0) {
-            this.velocity = 0;
-            frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
+        if (Math.abs(this.velocity) < this.maxTicksPerSec * 0.001) {
+            if (Math.abs(motorTorque) < this.staticFriction) {
+                this.velocity = 0;
+                frictionTorque = motorTorque;
+            } else {
+                frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
+            }
         } else {
-            frictionTorque = this.couloumbFriction * Math.sign(motorTorque) + this.viscousFriction * this.velocity / this.maxTicksPerSec * (this.freeSpeed / 60 * Math.PI * 2);
+            frictionTorque = this.couloumbFriction * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
         }
-        this.acceleration = (motorTorque - frictionTorque) / (this.motorInertia + this.loadIntertia);
-        // stopping still isn't quite right
-        if (Math.abs(this.velocity) < 10 && this.acceleration * this.velocity < 0 && (this.velocity + this.acceleration * dt) * this.velocity > 0) {
-            this.acceleration = 0;
-            this.velocity = 0;
-        }
+        const accelerationRadPerSec2 = (motorTorque - frictionTorque) / (this.motorInertia + this.loadInertia);
+        this.acceleration = accelerationRadPerSec2 * (this.maxTicksPerSec / (this.freeSpeed / 60 * Math.PI * 2));
         this.velocity += this.acceleration * dt;
         this.position += this.velocity * dt;
 
@@ -198,7 +200,7 @@ function simulate() {
     const f = +document.getElementById('f').value;
     const pp = +document.getElementById('pp').value;
     const motorInertia = +document.getElementById('motorInertia').value;
-    const loadIntertia = +document.getElementById('loadInertia').value;
+    const loadInertia = +document.getElementById('loadInertia').value;
     const stallCurrent = +document.getElementById('stallCurrent').value;
     const stallTorque = +document.getElementById('stallTorque').value;
     const noLoadCurrent = +document.getElementById('noLoadCurrent').value;
@@ -215,7 +217,7 @@ function simulate() {
     const ptarget = +document.getElementById('ptarget').value;
     const duration = +document.getElementById('duration').value;
 
-    const motor = new Motor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance);
+    const motor = new Motor(motorInertia, loadInertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance);
     motor.velocity = start * motor.maxTicksPerSec * motor.speedFactor;
     motor.lastTorque = undefined;
     const controller = new PIDFController(p, i, d, f);
