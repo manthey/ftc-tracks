@@ -43,7 +43,7 @@
             <label>No-Load Current: <input type="text" inputmode="decimal" id="noLoadCurrent" value="0.4" step="0.1"> A</label>
             <label>Free Speed: <input type="text" inputmode="decimal" id="freeSpeed" value="6000" step="0.1"> RPM</label>
             <label>Max Ticks/sec: <input type="text" inputmode="decimal" id="maxTicksPerSec" value="2800" step="100"></label>
-            <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.1" step="0.01"> N-m</label>
+            <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.01" step="0.001"> N-m</label>
             <label>Coulomb Friction: <input type="text" inputmode="decimal" id="couloumbFriction" value="0.0015" step="0.0001"> N-m</label>
             <label>Viscous Friction: <input type="text" inputmode="decimal" id="viscousFriction" value="0.000005" step="0.00000001"> N-m-s/rad</label>
             <label>Supply Voltage: <input type="text" inputmode="decimal" id="supplyVoltage" value="12" step="0.1"> V</label>
@@ -112,7 +112,7 @@ class Motor {
         this.couloumbFriction = values.couloumbFriction;
         this.viscousFriction = values.viscousFriction;
         this.speedFraction = values.speedFraction;
-        this.maxVoltage = values.supplyVoltage;
+        this.supplyVoltage = values.supplyVoltage;
         this.supplyResistance = values.supplyResistance;
         this.maxControlOutput = 32767;
         this.lastTorque = 0;
@@ -132,12 +132,12 @@ class Motor {
         let normalizedVelocity =  this.velocity / this.maxTicksPerSec; 
         let velRadPerSec = normalizedVelocity * (this.freeSpeed / 60 * Math.PI * 2);
 
-        // this is velRadPerSec * Ke / maxVoltage, since 
-        // Ke = maxVoltage / (this.freeSpeed / 60 * Math.PI * 2)
+        // this is velRadPerSec * Ke / supplyVoltage, since 
+        // Ke = supplyVoltage / (this.freeSpeed / 60 * Math.PI * 2)
         let backEMF = normalizedVelocity;
         // handle battery sag
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
-        normalizedControl *= (this.maxVoltage - drawCurrent * this.supplyResistance) / this.maxVoltage;
+        normalizedControl *= (this.supplyVoltage - drawCurrent * this.supplyResistance) / this.supplyVoltage;
         // calculate torque
         let motorTorque = this.stallTorque * (normalizedControl - backEMF); 
         // simple inductance delay;
@@ -147,6 +147,8 @@ class Motor {
         }
         this.lastTorque = motorTorque;
         let frictionTorque = 0;
+
+        /* Approximate slowing
         if (Math.abs(this.velocity) < this.maxTicksPerSec * 0.001) {
             if (Math.abs(motorTorque) < this.staticFriction) {
                 this.velocity = 0;
@@ -157,6 +159,20 @@ class Motor {
         } else {
             frictionTorque = this.couloumbFriction * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
         }
+		*/
+
+        // aproximate stribeck effect at slow speeds
+        const vStribeckNorm = 0.001;  
+        const vAbsNorm = Math.abs(normalizedVelocity);
+        const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.couloumbFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
+                            
+        frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
+        const blendStatic = Math.exp(-vAbsNorm / vStribeckNorm);  
+        const staticMag = this.staticFriction * blendStatic;
+        const staticTorque = Math.sign(motorTorque) * Math.min(staticMag, Math.abs(motorTorque));
+        frictionTorque = frictionTorque * (1 - blendStatic) + staticTorque * blendStatic;
+        frictionTorque = Math.sign(frictionTorque) * Math.min(this.staticFriction, Math.abs(frictionTorque));
+
         const accelerationRadPerSec2 = (motorTorque - frictionTorque) / (this.motorInertia + this.loadInertia);
         this.acceleration = accelerationRadPerSec2 * (this.maxTicksPerSec / (this.freeSpeed / 60 * Math.PI * 2));
         this.velocity += this.acceleration * dt;
@@ -335,6 +351,15 @@ function plotResults(data, motor) {
         }
     });
 }
+
+document.querySelectorAll('input, textarea').forEach(input => {
+	input.addEventListener('keydown', function(e) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			simulate();
+		}
+	});
+});
 
 const params = new URLSearchParams(window.location.search);
 params.forEach((value, id) => {
