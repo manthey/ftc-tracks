@@ -28,24 +28,26 @@
             <label>F: <input type="text" inputmode="decimal" id="f" value="5" step="0.1"></label>
             <h3>Position P</h3>
             <label>P: <input type="text" inputmode="decimal" id="pp" value="10" step="0.1"></label>
+            <h3>Internal</h3>
+            <label>Speed Fraction: <input type="text" inputmode="decimal" id="speedFraction" value="0.85" step="0.01"></label>
+            <h3>Physical</h3>
+            <label title="Rev gear ratios are 84/29 (2.897), 76/21 (3.619), 68/13 (5.230)">Gear Ratio: <input type="text" inputmode="decimal" id="gearRatio" value="1" step="0.1"></label>
+            <label title="After gearing -- use gear ratio of 1 if this is the reflected load inertia">Load Inertia: <input type="text" inputmode="decimal" id="loadInertia" value="0.00003" step="0.00001"> kg-m2</label>
         </div>
 
         <div class="control-group">
-            <h3>Physical</h3>
-            <label>Motor Inertia kg-m2: <input type="text" inputmode="decimal" id="motorInertia" value="0.0000022" step="0.0000001"></label>
-            <!-- 0.01 is recommended by one estimatee, 0.001 by another -->
-            <label>Load Inertia kg-m2: <input type="text" inputmode="decimal" id="loadInertia" value="0.00003" step="0.00001"></label>
-            <label>Stall Torque N-m: <input type="text" inputmode="decimal" id="stallTorque" value="0.105" step="0.0001"></label>
-            <label>Stall Current A: <input type="text" inputmode="decimal" id="stallCurrent" value="8.5" step="0.1"></label>
-            <label>No-Load Current A: <input type="text" inputmode="decimal" id="noLoadCurrent" value="0.4" step="0.1"></label>
-            <label>Free Speed RPM: <input type="text" inputmode="decimal" id="freeSpeed" value="6000" step="0.1"></label>
+            <h3>Motor</h3>
+            <label>Motor Inertia: <input type="text" inputmode="decimal" id="motorInertia" value="0.0000022" step="0.0000001"> kg-m2</label>
+            <label>Stall Torque: <input type="text" inputmode="decimal" id="stallTorque" value="0.105" step="0.0001"> N-m</label>
+            <label>Stall Current: <input type="text" inputmode="decimal" id="stallCurrent" value="8.5" step="0.1"> A</label>
+            <label>No-Load Current: <input type="text" inputmode="decimal" id="noLoadCurrent" value="0.4" step="0.1"> A</label>
+            <label>Free Speed: <input type="text" inputmode="decimal" id="freeSpeed" value="6000" step="0.1"> RPM</label>
             <label>Max Ticks/sec: <input type="text" inputmode="decimal" id="maxTicksPerSec" value="2800" step="100"></label>
-            <label>Speed Fraction: <input type="text" inputmode="decimal" id="speedFraction" value="0.85" step="0.01"></label>
-            <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.1" step="0.01"></label>
-            <label>Coulomb Friction: <input type="text" inputmode="decimal" id="couloumbFriction" value="0.0015" step="0.0001"></label>
-            <label>Viscous Friction: <input type="text" inputmode="decimal" id="viscousFriction" value="0.000005" step="0.00000001"></label>
-            <label>Supply Voltage V: <input type="text" inputmode="decimal" id="supplyVoltage" value="12" step="0.1"></label>
-            <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance &#x3A9;: <input type="text" inputmode="decimal" id="supplyResistance" value="0.06" step="0.01"></label>
+            <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.1" step="0.01"> N-m</label>
+            <label>Coulomb Friction: <input type="text" inputmode="decimal" id="couloumbFriction" value="0.0015" step="0.0001"> N-m</label>
+            <label>Viscous Friction: <input type="text" inputmode="decimal" id="viscousFriction" value="0.000005" step="0.00000001"> N-m-s/rad</label>
+            <label>Supply Voltage: <input type="text" inputmode="decimal" id="supplyVoltage" value="12" step="0.1"> V</label>
+            <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance: <input type="text" inputmode="decimal" id="supplyResistance" value="0.06" step="0.01"> &#x3A9;</label>
         </div>
 
         <div class="control-group">
@@ -59,8 +61,8 @@
             </label>
             <label>Start: <input type="text" inputmode="decimal" id="start" value="0.0" step="0.1"></label>
             <label>Target: <input type="text" inputmode="decimal" id="target" value="1.0" step="0.1"></label>
-            <label>Position: <input type="text" inputmode="decimal" id="ptarget" value="2000" step="1"></label>
-            <label>Duration (s): <input type="text" inputmode="decimal" id="duration" value="3" step="0.1"></label>
+            <label>Position: <input type="text" inputmode="decimal" id="ptarget" value="2000" step="1"> ticks</label>
+            <label>Duration: <input type="text" inputmode="decimal" id="duration" value="3" step="0.1"> s</label>
         </div>
         <div class="control-group control-button">
             <div>
@@ -100,7 +102,7 @@
 class Motor {
     constructor(values) {
         this.motorInertia = values.motorInertia;
-        this.loadInertia = values.loadInertia;
+        this.loadInertia = values.loadInertia / values.gearRatio / values.gearRatio;
         this.stallCurrent = values.stallCurrent;
         this.noLoadCurrent = values.noLoadCurrent;
         this.stallTorque = values.stallTorque;
@@ -209,8 +211,8 @@ function simulate() {
     const query = {};
     document.querySelectorAll('input[inputmode="decimal"][id]').forEach((input) => {
         v[input.id] = +input.value;
-        if (input.value !== input.getAttribute('value')) {
-            query[input.id] = input.value;
+        if (input.value !== input.getAttribute('value') && input.value.trim()) {
+            query[input.id] = input.value.trim();
         }            
     });
     document.querySelectorAll('select[id]').forEach((input) => {
@@ -337,8 +339,8 @@ function plotResults(data, motor) {
 const params = new URLSearchParams(window.location.search);
 params.forEach((value, id) => {
     const input = document.getElementById(id);
-    if (input) {
-        input.value = value;
+    if (input && value.trim()) {
+        input.value = value.trim();
     }
 });
 
