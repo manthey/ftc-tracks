@@ -9,7 +9,7 @@
         .control-group.control-button { border: none; }
         .control-group h3 { margin: 0 0 10px 0; }
         label { display: block; margin-bottom: 5px; }
-        input[type="number"] { width: 70px; }
+        input[inputmode="decimal"] { width: 80px; }
         button { padding: 8px 16px; }
         #plot { width: 100%; height: 400px; margin-top: 10px; } 
         .hidden { display: none; }
@@ -22,29 +22,32 @@
     <div class="controls">
         <div class="control-group">
             <h3>Velocity PIDF</h3>
-            <label>P: <input type="number" id="p" value="10" step="0.1"></label>
-            <label>I: <input type="number" id="i" value="3" step="0.1"></label>
-            <label>D: <input type="number" id="d" value="0" step="0.1"></label>
-            <label>F: <input type="number" id="f" value="5" step="0.1"></label>
+            <label>P: <input type="text" inputmode="decimal" id="p" value="10" step="0.1"></label>
+            <label>I: <input type="text" inputmode="decimal" id="i" value="3" step="0.1"></label>
+            <label>D: <input type="text" inputmode="decimal" id="d" value="0" step="0.1"></label>
+            <label>F: <input type="text" inputmode="decimal" id="f" value="5" step="0.1"></label>
             <h3>Position P</h3>
-            <label>P: <input type="number" id="pp" value="10" step="0.1"></label>
+            <label>P: <input type="text" inputmode="decimal" id="pp" value="10" step="0.1"></label>
+            <h3>Internal</h3>
+            <label>Speed Fraction: <input type="text" inputmode="decimal" id="speedFraction" value="0.85" step="0.01"></label>
+            <h3>Physical</h3>
+            <label title="Rev gear ratios are 84/29 (2.897), 76/21 (3.619), 68/13 (5.230)">Gear Ratio: <input type="text" inputmode="decimal" id="gearRatio" value="1" step="0.1"></label>
+            <label title="After gearing -- use gear ratio of 1 if this is the reflected load inertia">Load Inertia: <input type="text" inputmode="decimal" id="loadInertia" value="0.00003" step="0.00001"> kg-m2</label>
         </div>
 
         <div class="control-group">
-            <h3>Physical</h3>
-            <label>Motor Inertia kg-m2: <input type="number" id="motorInertia" value="0.00022" step="0.00001"></label>
-            <!-- 0.01 is recommended by one estimatee, 0.001 by another -->
-            <label>Load Inertia kg-m2: <input type="number" id="loadInertia" value="0.003" step="0.0001"></label>
-            <label>Stall Torque N-m: <input type="number" id="stallTorque" value="0.105" step="0.0001"></label>
-            <label>Stall Current A: <input type="number" id="stallCurrent" value="8.5" step="0.1"></label>
-            <label>No-Load Current A: <input type="number" id="noLoadCurrent" value="0.4" step="0.1"></label>
-            <label>Free Speed RPM: <input type="number" id="freeSpeed" value="6000" step="0.1"></label>
-            <label>Max Ticks/sec: <input type="number" id="maxTicksPerSec" value="2800" step="100"></label>
-            <label>Static Friction: <input type="number" id="staticFriction" value="0.2" step="0.01"></label>
-            <label>Coulomb Friction: <input type="number" id="couloumbFriction" value="0.1" step="0.01"></label>
-            <label>Viscous Friction: <input type="number" id="viscousFriction" value="0.005" step="0.0001"></label>
-            <label>Supply Voltage V: <input type="number" id="supplyVoltage" value="12" step="0.1"></label>
-            <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance &#x3A9;: <input type="number" id="supplyResistance" value="0.06" step="0.01"></label>
+            <h3>Motor</h3>
+            <label>Motor Inertia: <input type="text" inputmode="decimal" id="motorInertia" value="0.0000022" step="0.0000001"> kg-m2</label>
+            <label>Stall Torque: <input type="text" inputmode="decimal" id="stallTorque" value="0.105" step="0.0001"> N-m</label>
+            <label>Stall Current: <input type="text" inputmode="decimal" id="stallCurrent" value="8.5" step="0.1"> A</label>
+            <label>No-Load Current: <input type="text" inputmode="decimal" id="noLoadCurrent" value="0.4" step="0.1"> A</label>
+            <label>Free Speed: <input type="text" inputmode="decimal" id="freeSpeed" value="6000" step="0.1"> RPM</label>
+            <label>Max Ticks/sec: <input type="text" inputmode="decimal" id="maxTicksPerSec" value="2800" step="100"></label>
+            <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.01" step="0.001"> N-m</label>
+            <label>Coulomb Friction: <input type="text" inputmode="decimal" id="couloumbFriction" value="0.0015" step="0.0001"> N-m</label>
+            <label>Viscous Friction: <input type="text" inputmode="decimal" id="viscousFriction" value="0.000005" step="0.00000001"> N-m-s/rad</label>
+            <label>Supply Voltage: <input type="text" inputmode="decimal" id="supplyVoltage" value="12" step="0.1"> V</label>
+            <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance: <input type="text" inputmode="decimal" id="supplyResistance" value="0.06" step="0.01"> &#x3A9;</label>
         </div>
 
         <div class="control-group">
@@ -56,10 +59,10 @@
                     <option value="without">Run without Encoder</option>
                 </select>
             </label>
-            <label>Start: <input type="number" id="start" value="0.0" step="0.1"></label>
-            <label>Target: <input type="number" id="target" value="1.0" step="0.1"></label>
-            <label>Position: <input type="number" id="ptarget" value="2000" step="1"></label>
-            <label>Duration (s): <input type="number" id="duration" value="3" step="0.1"></label>
+            <label>Start: <input type="text" inputmode="decimal" id="start" value="0.0" step="0.1"></label>
+            <label>Target: <input type="text" inputmode="decimal" id="target" value="1.0" step="0.1"></label>
+            <label>Position: <input type="text" inputmode="decimal" id="ptarget" value="2000" step="1"> ticks</label>
+            <label>Duration: <input type="text" inputmode="decimal" id="duration" value="3" step="0.1"> s</label>
         </div>
         <div class="control-group control-button">
             <div>
@@ -97,23 +100,23 @@
     </div>
     <script>
 class Motor {
-    constructor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance) {
-        this.motorInertia = motorInertia;
-        this.loadIntertia = loadIntertia;
-        this.stallCurrent = stallCurrent;
-        this.noLoadCurrent = noLoadCurrent;
-        this.stallTorque = stallTorque;
-        this.freeSpeed = freeSpeed;
-        this.maxTicksPerSec = maxTicksPerSec;
-        this.staticFriction = staticFriction;
-        this.couloumbFriction = couloumbFriction;
-        this.viscousFriction = viscousFriction;
-        this.speedFactor = 0.85;
+    constructor(values) {
+        this.motorInertia = values.motorInertia;
+        this.loadInertia = values.loadInertia / values.gearRatio / values.gearRatio;
+        this.stallCurrent = values.stallCurrent;
+        this.noLoadCurrent = values.noLoadCurrent;
+        this.stallTorque = values.stallTorque;
+        this.freeSpeed = values.freeSpeed;
+        this.maxTicksPerSec = values.maxTicksPerSec;
+        this.staticFriction = values.staticFriction;
+        this.couloumbFriction = values.couloumbFriction;
+        this.viscousFriction = values.viscousFriction;
+        this.speedFraction = values.speedFraction;
+        this.supplyVoltage = values.supplyVoltage;
+        this.supplyResistance = values.supplyResistance;
         this.maxControlOutput = 32767;
-        this.maxVoltage = supplyVoltage;
         this.lastTorque = 0;
         this.torqueElecConstant = 0.00015 / 2.18;  // 150 uH / ohm
-        this.supplyResistance = supplyResistance;
         this.reset();
     }
 
@@ -124,17 +127,19 @@ class Motor {
     }
 
     update(controlOutput, dt) {
+        // normalizedControl and normalizedVelocity are in the range of [-1, 1]
         let normalizedControl = controlOutput / this.maxControlOutput;
+        let normalizedVelocity =  this.velocity / this.maxTicksPerSec; 
+        let velRadPerSec = normalizedVelocity * (this.freeSpeed / 60 * Math.PI * 2);
 
-        let backEMF = (1 - this.noLoadCurrent / this.stallCurrent) * this.velocity / this.maxTicksPerSec;
-        if (backEMF * this.velocity < 0) {
-            backEMF = 0;
-        }
+        // this is velRadPerSec * Ke / supplyVoltage, since 
+        // Ke = supplyVoltage / (this.freeSpeed / 60 * Math.PI * 2)
+        let backEMF = normalizedVelocity;
         // handle battery sag
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
-        normalizedControl *= (this.maxVoltage - drawCurrent * this.supplyResistance) / this.maxVoltage;
+        normalizedControl *= (this.supplyVoltage - drawCurrent * this.supplyResistance) / this.supplyVoltage;
         // calculate torque
-        let motorTorque = this.stallTorque * (normalizedControl - backEMF) * this.maxTicksPerSec / 2 / Math.PI;
+        let motorTorque = this.stallTorque * (normalizedControl - backEMF); 
         // simple inductance delay;
         const alpha = dt / (this.torqueElecConstant + dt);
         if (this.lastTorque !== undefined) {
@@ -142,18 +147,34 @@ class Motor {
         }
         this.lastTorque = motorTorque;
         let frictionTorque = 0;
-        if (this.velocity === 0) {
-            this.velocity = 0;
-            frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
+
+        /* Approximate slowing
+        if (Math.abs(this.velocity) < this.maxTicksPerSec * 0.001) {
+            if (Math.abs(motorTorque) < this.staticFriction) {
+                this.velocity = 0;
+                frictionTorque = motorTorque;
+            } else {
+                frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
+            }
         } else {
-            frictionTorque = this.couloumbFriction * Math.sign(motorTorque) + this.viscousFriction * this.velocity / this.maxTicksPerSec * (this.freeSpeed / 60 * Math.PI * 2);
+            frictionTorque = this.couloumbFriction * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
         }
-        this.acceleration = (motorTorque - frictionTorque) / (this.motorInertia + this.loadIntertia);
-        // stopping still isn't quite right
-        if (Math.abs(this.velocity) < 10 && this.acceleration * this.velocity < 0 && (this.velocity + this.acceleration * dt) * this.velocity > 0) {
-            this.acceleration = 0;
-            this.velocity = 0;
-        }
+		*/
+
+        // aproximate stribeck effect at slow speeds
+        const vStribeckNorm = 0.001;  
+        const vAbsNorm = Math.abs(normalizedVelocity);
+        const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.couloumbFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
+                            
+        frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
+        const blendStatic = Math.exp(-vAbsNorm / vStribeckNorm);  
+        const staticMag = this.staticFriction * blendStatic;
+        const staticTorque = Math.sign(motorTorque) * Math.min(staticMag, Math.abs(motorTorque));
+        frictionTorque = frictionTorque * (1 - blendStatic) + staticTorque * blendStatic;
+        frictionTorque = Math.sign(frictionTorque) * Math.min(this.staticFriction, Math.abs(frictionTorque));
+
+        const accelerationRadPerSec2 = (motorTorque - frictionTorque) / (this.motorInertia + this.loadInertia);
+        this.acceleration = accelerationRadPerSec2 * (this.maxTicksPerSec / (this.freeSpeed / 60 * Math.PI * 2));
         this.velocity += this.acceleration * dt;
         this.position += this.velocity * dt;
 
@@ -191,54 +212,59 @@ class PIDFController {
     }
 }
 
-function simulate() {
-    const p = +document.getElementById('p').value;
-    const i = +document.getElementById('i').value;
-    const d = +document.getElementById('d').value;
-    const f = +document.getElementById('f').value;
-    const pp = +document.getElementById('pp').value;
-    const motorInertia = +document.getElementById('motorInertia').value;
-    const loadIntertia = +document.getElementById('loadInertia').value;
-    const stallCurrent = +document.getElementById('stallCurrent').value;
-    const stallTorque = +document.getElementById('stallTorque').value;
-    const noLoadCurrent = +document.getElementById('noLoadCurrent').value;
-    const supplyVoltage = +document.getElementById('supplyVoltage').value;
-    const supplyResistance = +document.getElementById('supplyResistance').value;
-    const freeSpeed = +document.getElementById('freeSpeed').value;
-    const maxTicksPerSec = +document.getElementById('maxTicksPerSec').value;
-    const staticFriction = +document.getElementById('staticFriction').value;
-    const couloumbFriction = +document.getElementById('couloumbFriction').value;
-    const viscousFriction = +document.getElementById('viscousFriction').value;
-    const mode = document.getElementById('mode').value;
-    const start = +document.getElementById('start').value;
-    const etarget = +document.getElementById('target').value;
-    const ptarget = +document.getElementById('ptarget').value;
-    const duration = +document.getElementById('duration').value;
+function updateURL(query) {
+    const url = new URL(window.location);
+    const params = new URLSearchParams();
+    Object.keys(query).forEach(key => {
+        params.set(key, query[key]);
+    });
+    const newURL = params.toString() ? `${url.pathname}?${params.toString()}` : url.pathname;
+    window.history.pushState({}, '', newURL);
+}
 
-    const motor = new Motor(motorInertia, loadIntertia, stallCurrent, noLoadCurrent, freeSpeed, supplyVoltage, stallTorque, maxTicksPerSec, staticFriction, couloumbFriction, viscousFriction, supplyResistance);
-    motor.velocity = start * motor.maxTicksPerSec * motor.speedFactor;
+function simulate() {
+    const v = {};
+    const query = {};
+    document.querySelectorAll('input[inputmode="decimal"][id]').forEach((input) => {
+        v[input.id] = +input.value;
+        if (input.value !== input.getAttribute('value') && input.value.trim()) {
+            query[input.id] = input.value.trim();
+        }            
+    });
+    document.querySelectorAll('select[id]').forEach((input) => {
+        v[input.id] = input.value;
+        const defaultOption = input.querySelector('option[selected]');
+        const defaultValue = defaultOption ? defaultOption.value : input.options[0]?.value;
+        if (input.value !== defaultValue) {
+            query[input.id] = input.value;
+        }
+    });
+    updateURL(query);
+
+    const motor = new Motor(v);
+    motor.velocity = v.start * motor.maxTicksPerSec * motor.speedFraction;
     motor.lastTorque = undefined;
-    const controller = new PIDFController(p, i, d, f);
+    const controller = new PIDFController(v.p, v.i, v.d, v.f);
 
     const controlDt = 0.05; // 20Hz control updates
     const simDt = 0.001; // 1ms simulation timestep
-    const steps = Math.floor(duration / simDt);
+    const steps = Math.floor(v.duration / simDt);
     const data = [];
 
     let lastControlTime = 0;
-    let controlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, start * motor.maxControlOutput * motor.speedFactor)));
+    let controlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, v.start * motor.maxControlOutput * motor.speedFraction)));
     let nextControlOutput = controlOutput;
     let targetValue = 0;
     let actualValue = 0;
 
     for (let step = 0; step < steps; step++) {
-        let target = etarget;
+        let target = v.target;
         const time = step * simDt;
 
-        if (mode === 'without') {
+        if (v.mode === 'without') {
             targetValue = target * motor.maxTicksPerSec;
         } else {
-            targetValue = target * motor.maxTicksPerSec * motor.speedFactor;
+            targetValue = target * motor.maxTicksPerSec * motor.speedFraction;
         }
         actualValue = motor.velocity;
         const dataEntry = {
@@ -247,24 +273,24 @@ function simulate() {
             actual: actualValue,
             position: motor.position
         };
-        if (mode === 'position') {
-            const perror = ptarget - Math.floor(motor.position);
-            let pspeed = perror * Math.max(pp, 1) / motor.maxTicksPerSec;
+        if (v.mode === 'position') {
+            const perror = v.ptarget - Math.floor(motor.position);
+            let pspeed = perror * Math.max(v.pp, 1) / motor.maxTicksPerSec;
             target = Math.max(-target, Math.min(target, pspeed));
-            dataEntry.targetPosition = ptarget;
+            dataEntry.targetPosition = v.ptarget;
             dataEntry.target = target;
-            targetValue = target * motor.maxTicksPerSec * motor.speedFactor;
+            targetValue = target * motor.maxTicksPerSec * motor.speedFraction;
         }
         // Update control at 20Hz
         if (time - lastControlTime >= controlDt) {
-            if (mode === 'without') {
+            if (v.mode === 'without') {
                 nextControlOutput = Math.round(motor.maxControlOutput * target);
             } else {
                 const intVelocity = (Math.floor(motor.position) - (motor.lastIntPosition || 0));
                 motor.lastIntPosition = Math.floor(motor.position);
                 const error = (Math.floor(targetValue / 20) - intVelocity) * 20;
                 // Feedforward: target power -> control output
-                const feedforward = target * motor.maxTicksPerSec * motor.speedFactor;
+                const feedforward = target * motor.maxTicksPerSec * motor.speedFraction;
                 nextControlOutput = controller.compute(error, feedforward, controlDt);
                 nextControlOutput = Math.floor(Math.max(-motor.maxControlOutput, Math.min(motor.maxControlOutput, nextControlOutput)));
             }
@@ -314,7 +340,7 @@ function plotResults(data, motor) {
             if (position && Math.abs(d.position - d.targetPosition) > val) {
                 dur = d.time;
             }
-            if (!position && Math.abs(d.actual - d.target) * 100 / motor.maxTicksPerSec / motor.speedFactor > val) {
+            if (!position && Math.abs(d.actual - d.target) * 100 / motor.maxTicksPerSec / motor.speedFraction > val) {
                 dur = d.time;
             }
         });
@@ -326,6 +352,22 @@ function plotResults(data, motor) {
     });
 }
 
+document.querySelectorAll('input, textarea').forEach(input => {
+	input.addEventListener('keydown', function(e) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			simulate();
+		}
+	});
+});
+
+const params = new URLSearchParams(window.location.search);
+params.forEach((value, id) => {
+    const input = document.getElementById(id);
+    if (input && value.trim()) {
+        input.value = value.trim();
+    }
+});
 
 setTimeout(simulate, 1);
     </script>
