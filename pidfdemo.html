@@ -194,14 +194,34 @@ class PIDFController {
     }
 }
 
+function updateURL(query) {
+    const url = new URL(window.location);
+    const params = new URLSearchParams();
+    Object.keys(query).forEach(key => {
+        params.set(key, query[key]);
+    });
+    const newURL = params.toString() ? `${url.pathname}?${params.toString()}` : url.pathname;
+    window.history.pushState({}, '', newURL);
+}
+
 function simulate() {
     const v = {};
+    const query = {};
     document.querySelectorAll('input[inputmode="decimal"][id]').forEach((input) => {
         v[input.id] = +input.value;
+        if (input.value !== input.getAttribute('value')) {
+            query[input.id] = input.value;
+        }            
     });
     document.querySelectorAll('select[id]').forEach((input) => {
         v[input.id] = input.value;
+        const defaultOption = input.querySelector('option[selected]');
+        const defaultValue = defaultOption ? defaultOption.value : input.options[0]?.value;
+        if (input.value !== defaultValue) {
+            query[input.id] = input.value;
+        }
     });
+    updateURL(query);
 
     const motor = new Motor(v);
     motor.velocity = v.start * motor.maxTicksPerSec * motor.speedFraction;
@@ -314,6 +334,13 @@ function plotResults(data, motor) {
     });
 }
 
+const params = new URLSearchParams(window.location.search);
+params.forEach((value, id) => {
+    const input = document.getElementById(id);
+    if (input) {
+        input.value = value;
+    }
+});
 
 setTimeout(simulate, 1);
     </script>
