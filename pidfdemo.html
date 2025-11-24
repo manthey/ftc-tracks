@@ -44,7 +44,7 @@
             <label>Free Speed: <input type="text" inputmode="decimal" id="freeSpeed" value="6000" step="0.1"> RPM</label>
             <label>Max Ticks/sec: <input type="text" inputmode="decimal" id="maxTicksPerSec" value="2800" step="100"></label>
             <label>Static Friction: <input type="text" inputmode="decimal" id="staticFriction" value="0.01" step="0.001"> N-m</label>
-            <label>Coulomb Friction: <input type="text" inputmode="decimal" id="couloumbFriction" value="0.0015" step="0.0001"> N-m</label>
+            <label>Coulomb Friction: <input type="text" inputmode="decimal" id="coulombFriction" value="0.0015" step="0.0001"> N-m</label>
             <label>Viscous Friction: <input type="text" inputmode="decimal" id="viscousFriction" value="0.000005" step="0.00000001"> N-m-s/rad</label>
             <label>Supply Voltage: <input type="text" inputmode="decimal" id="supplyVoltage" value="12" step="0.1"> V</label>
             <label title="For one motor, this is around 0.06 ohms; for multiple motors, multiply it by the number of motors operating together">Supply Resistance: <input type="text" inputmode="decimal" id="supplyResistance" value="0.06" step="0.01"> &#x3A9;</label>
@@ -102,14 +102,14 @@
 class Motor {
     constructor(values) {
         this.motorInertia = values.motorInertia;
-        this.loadInertia = values.loadInertia / values.gearRatio / values.gearRatio;
+        this.loadInertia = values.loadInertia * values.gearRatio * values.gearRatio;
         this.stallCurrent = values.stallCurrent;
         this.noLoadCurrent = values.noLoadCurrent;
         this.stallTorque = values.stallTorque;
         this.freeSpeed = values.freeSpeed;
         this.maxTicksPerSec = values.maxTicksPerSec;
         this.staticFriction = values.staticFriction;
-        this.couloumbFriction = values.couloumbFriction;
+        this.coulombFriction = values.coulombFriction;
         this.viscousFriction = values.viscousFriction;
         this.speedFraction = values.speedFraction;
         this.supplyVoltage = values.supplyVoltage;
@@ -157,14 +157,14 @@ class Motor {
                 frictionTorque = Math.min(this.staticFriction, Math.abs(motorTorque)) * Math.sign(motorTorque);
             }
         } else {
-            frictionTorque = this.couloumbFriction * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
+            frictionTorque = this.coulombFriction * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
         }
 		*/
 
         // aproximate stribeck effect at slow speeds
         const vStribeckNorm = 0.001;  
         const vAbsNorm = Math.abs(normalizedVelocity);
-        const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.couloumbFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
+        const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.coulombFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
                             
         frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
         const blendStatic = Math.exp(-vAbsNorm / vStribeckNorm);  
@@ -198,8 +198,9 @@ class PIDFController {
         this.integral += error * dt;
 
         // Integral windup protection
-        const maxIntegral = 32767;
+        const maxIntegral = 2800;
         this.integral = Math.max(-maxIntegral, Math.min(maxIntegral, this.integral));
+        console.log(this.integral); // DWM::
         const derivative = dt > 0 && this.lastError !== undefined ? (error - this.lastError) / dt : 0;
         const deriv = derivative * 0.4 + this.lastDerivative * 0.6;
         this.lastDerivative = derivative;
