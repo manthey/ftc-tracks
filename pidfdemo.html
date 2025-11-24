@@ -102,7 +102,7 @@
 class Motor {
     constructor(values) {
         this.motorInertia = values.motorInertia;
-        this.loadInertia = values.loadInertia * values.gearRatio * values.gearRatio;
+        this.loadInertia = values.loadInertia / values.gearRatio / values.gearRatio;
         this.stallCurrent = values.stallCurrent;
         this.noLoadCurrent = values.noLoadCurrent;
         this.stallTorque = values.stallTorque;
