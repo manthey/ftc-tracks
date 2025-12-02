@@ -207,7 +207,7 @@ function parsePaths(project) {
         } catch (err) { }
       }
     } else if (fields[0] === 'Field' && fields.length === 6) {
-      if (isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[5]) && isFinite(fields[6])) {
+      if (isFinite(fields[2]) && isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[5])) {
         try {
           settings.field = [fields[1], parseFloat(fields[2]), parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5])];
         } catch (err) { }
