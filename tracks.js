@@ -207,13 +207,15 @@ function parsePaths(project) {
         } catch (err) { }
       }
     } else if (fields[0] === 'Field' && fields.length === 6) {
-      try {
-        settings.field = [fields[1], parseFloat(fields[2]), parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5])];
-      } catch (err) { }
+      if (isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[6]) && isFinite(fields[7])) {
+        try {
+          settings.field = [fields[1], parseFloat(fields[2]), parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5])];
+        } catch (err) { }
+      }
     } else if (fields[0] === 'Robot' && fields.length === 7) {
       try {
         const rnum = parseInt(fields[1], 10);
-        if (rnum >= 0) {
+        if (isFinite(fields[4]) && isFinite(fields[5]) && isFinite(fields[6]) && isFinite(fields[7]) && rnum >= 0) {
           while (rnum >= settings.robots.length) {
             settings.robots.push(settings.robots[0]);
           }
