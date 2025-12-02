@@ -207,21 +207,23 @@ function parsePaths(project) {
         } catch (err) { }
       }
     } else if (fields[0] === 'Field' && fields.length === 6) {
-      if (isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[6]) && isFinite(fields[7])) {
+      if (isFinite(fields[2]) && isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[5])) {
         try {
           settings.field = [fields[1], parseFloat(fields[2]), parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5])];
-        } catch (err) { }
+        } catch (err) { console.log(err); }
+      } else {
+        console.log('Field not finite');
       }
     } else if (fields[0] === 'Robot' && fields.length === 7) {
       try {
         const rnum = parseInt(fields[1], 10);
-        if (isFinite(fields[4]) && isFinite(fields[5]) && isFinite(fields[6]) && isFinite(fields[7]) && rnum >= 0) {
+        if (isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[5]) && isFinite(fields[6]) && rnum >= 0) {
           while (rnum >= settings.robots.length) {
             settings.robots.push(settings.robots[0]);
           }
           settings.robots[rnum] = [fields[2], parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5]), parseFloat(fields[6])];
         }
-      } catch (err) { }
+      } catch (err) { console.log(err); }
     } else if (currentPath && fields.length >= 4) {
       let [id, x, y, heading, speed, stop, delay, imgnum] = fields;
 
