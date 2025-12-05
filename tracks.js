@@ -7,12 +7,14 @@ const defaultSettings = {
   showText: true,
   showArrows: true,
   showPath: true,
+  fixedTimes: false,
   playInitialPause: 3,
   playFinalPause: 3,
   fullSpeedDistance: 12,
   noStopFullSpeedDistance: 12,
   minSpeed: 0.1,
   timeToSpeedUp: 0.5,
+  fixedTimes: false,
   field: ['intothedeep.png', 72, 72, 72, 72],  // url, left, top, right, bot
   robots: [  // url, left, front, right, back
     ['robot30dpi282x365.png', 9.4, 12.166, 9.3, 8.9],
@@ -288,6 +290,9 @@ function parsePaths(project) {
       let tacc = locs[idx - 1].stop ? settings.timeToSpeedUp : 0;
       let sdec = locs[idx].stop ? settings.fullSpeedDistance : settings.noStopFullSpeedDistance;
       let t = computePathTime(d, m, f, fmin, tacc, sdec);
+      if (settings.fixedTimes) {
+        t = 0;
+      }
       loc.t = (
         locs[idx - 1].t + t +
         (locs[idx].stop && !locs[idx].delay ? settings.stopTime : 0) +
