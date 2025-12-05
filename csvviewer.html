@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CSV Plotter</title>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;margin:0}
+#bar{padding:8px;background:#f0f0f0;display:flex;gap:8px;align-items:center;border-bottom:1px solid #ccc}
+#plot{position:fixed;top:50px;left:0;right:0;bottom:0}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;justify-content:center;align-items:center}
+#modal.open{display:flex}
+.pan{background:#fff;padding:20px;border-radius:8px;width:520px;max-height:85vh;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.pan h3{margin:0 0 15px}
+.pan label{display:block;margin:12px 0 4px;font-weight:bold}
+.pan select{width:100%;padding:6px}
+.cols{display:flex;gap:20px}
+.cols>div{flex:1}
+.chk{max-height:180px;overflow-y:auto;border:1px solid #ccc;padding:8px;background:#fafafa}
+.chk label{display:block;font-weight:normal;margin:4px 0;cursor:pointer}
+.btns{margin-top:16px;display:flex;gap:8px}
+.btns button{flex:1;padding:10px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="bar">
+<input type="file" id="file" accept=".csv">
+<button id="cfg" disabled>Configure Plot</button>
+</div>
+<div id="plot"></div>
+<div id="modal"><div class="pan">
+<h3>Plot Configuration</h3>
+<label>X Axis</label><select id="xSel"></select>
+<label>Color By Category</label><select id="catSel"><option value="">None</option></select>
+<div class="cols">
+<div><label>Left Y Axis (solid lines)</label><div class="chk" id="lChk"></div></div>
+<div><label>Right Y Axis (dashed lines)</label><div class="chk" id="rChk"></div></div>
+</div>
+<div class="btns"><button onclick="apply()">Apply</button><button onclick="hide()">Close</button></div>
+</div></div>
+<script>
+let D=[],H=[],numCols=[];
+const LDASH=['solid','dot','dashdot','longdash'];
+const RDASH=['dash','longdashdot','5,3,1,3','1,4'];
+const PAL=['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+
+function parseCSV(t){
+  const out=[],lines=t.split(/\r?\n/);
+  for(const ln of lines){
+    if(!ln.trim())continue;
+    const cells=[];let q=false,c='';
+    for(const ch of ln){
+      if(ch==='"')q=!q;
+      else if(ch===','&&!q){cells.push(c.trim());c='';}
+      else c+=ch;
+    }
+    cells.push(c.trim());out.push(cells);
+  }
+  return out;
+}
+function isNum(col){
+  let n=0;
+  for(let i=1;i<Math.min(D.length,50);i++){
+    const v=D[i]?.[col];
+    if(v!==''&&v!=null&&!isNaN(+v))n++;
+  }
+  return n>0;
+}
+function init(){
+  const x=document.getElementById('xSel'),c=document.getElementById('catSel');
+  const lc=document.getElementById('lChk'),rc=document.getElementById('rChk');
+  x.innerHTML='';c.innerHTML='<option value="">None</option>';lc.innerHTML='';rc.innerHTML='';
+  H.forEach((h,i)=>{
+    if(numCols.includes(i)){
+      x.add(new Option(h,i));
+      lc.innerHTML+=`<label><input type="checkbox" name="L" value="${i}"> ${h}</label>`;
+      rc.innerHTML+=`<label><input type="checkbox" name="R" value="${i}"> ${h}</label>`;
+    }
+    c.add(new Option(h,i));
+  });
+}
+function getChecked(n){return[...document.querySelectorAll(`input[name="${n}"]:checked`)].map(e=>+e.value);}
+function show(){document.getElementById('modal').classList.add('open');}
+function hide(){document.getElementById('modal').classList.remove('open');}
+function apply(){drawPlot();hide();}
+
+function drawPlot(){
+  const xi=+document.getElementById('xSel').value;
+  const ci=document.getElementById('catSel').value;
+  const L=getChecked('L'),R=getChecked('R');
+  const rows=D.slice(1);
+  const xVals=rows.map(r=>{const v=r[xi];return isNaN(+v)?v:+v;});
+  const cats=ci!==''?rows.map(r=>r[ci]||''):null;
+  const uniqCats=cats?[...new Set(cats)]:null;
+  const catCol={};
+  if(uniqCats)uniqCats.forEach((c,i)=>catCol[c]=PAL[i%PAL.length]);
+  const traces=[];
+
+  function addSeries(yiList,yaxis,dashList,suffix){
+    yiList.forEach((yi,si)=>{
+      const yAll=rows.map(r=>parseFloat(r[yi]));
+      const dash=dashList[si%dashList.length];
+      const baseColor=PAL[(yaxis==='y'?si:L.length+si)%PAL.length];
+      if(!cats){
+        traces.push({x:xVals,y:yAll,name:H[yi]+suffix,yaxis,mode:'lines',
+          line:{dash,width:2,color:baseColor},
+          hovertemplate:`%{y:.5g}`});
+      }else{
+        const segs=[];let cur={cat:cats[0],start:0};
+        for(let i=1;i<cats.length;i++){
+          if(cats[i]!==cur.cat){cur.end=i-1;segs.push(cur);cur={cat:cats[i],start:i};}
+        }
+        cur.end=cats.length-1;segs.push(cur);
+        segs.forEach((seg,segi)=>{
+          const start=segi>0?seg.start-1:seg.start;
+          const xf=xVals.slice(start,seg.end+1);
+          const yf=yAll.slice(start,seg.end+1);
+          const cf=cats.slice(start,seg.end+1);
+          traces.push({x:xf,y:yf,name:H[yi]+suffix,showlegend:segi===0,legendgroup:H[yi]+yaxis,
+            yaxis,mode:'lines',line:{dash,width:2,color:catCol[seg.cat]},
+            customdata:cf.map(c=>[c]),
+            hovertemplate:`%{y:.5g} [%{customdata[0]}]`});
+        });
+      }
+    });
+  }
+  addSeries(L,'y',LDASH,'');
+  addSeries(R,'y2',RDASH,' (R)');
+
+  Plotly.react('plot',traces,{
+    margin:{l:80,r:80,t:30,b:50},
+    hovermode:'x unified',
+    xaxis:{
+      title:H[xi],
+      showspikes:true,
+      spikemode:'across',
+      spikethickness:1,
+      spikecolor:'#999',
+      spikedash:'solid'
+    },
+    yaxis:{title:L.map(i=>H[i]).join(', ')},
+    yaxis2:{title:R.map(i=>H[i]).join(', '),overlaying:'y',side:'right',showgrid:false},
+    legend:{orientation:'h',y:1.05,x:0.5,xanchor:'center'}
+  },{responsive:true});
+}
+
+document.getElementById('file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    D=parseCSV(ev.target.result);H=D[0]||[];
+    numCols=H.map((_,i)=>i).filter(isNum);
+    init();document.getElementById('cfg').disabled=false;
+  };
+  r.readAsText(f);
+};
+document.getElementById('cfg').onclick=show;
+</script>
+</body>
+</html>
