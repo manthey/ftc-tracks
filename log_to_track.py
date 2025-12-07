@@ -4,7 +4,7 @@ import os
 import sys
 
 
-def logs_to_tracks(logdir, output):
+def logs_to_tracks(logdir, output, runs):
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -34,7 +34,10 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
     for number in sorted(tracks, reverse=True):
         name = tracks[number]['name']
         track = tracks[number]['track']
-        sys.stderr.write(f'{number} {track[-1][0]}\n')
+        skip = runs and number not in runs
+        sys.stderr.write(f'{number} {track[-1][0]} {name} {"- skipped" if skip else ""}\n')
+        if skip:
+            continue
         out.append(f'Path,{name}')
         for idx, (t, x, y, h) in enumerate(track):
             out.append(f'Point{idx},{x},{y},{h},,,{t - track[max(idx - 1, 0)][0]}')
@@ -42,7 +45,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         open(output, 'w').write('\n'.join(out) + '\n')
 
 
-def logs_to_excel(logdir, excelpath):
+def logs_to_excel(logdir, excelpath, csvpath, runs):
     import openpyxl
 
     tracks = {}
@@ -89,6 +92,9 @@ def logs_to_excel(logdir, excelpath):
                 track.append(state)
         if len(track) < 2:
             continue
+        skip = runs and number not in runs
+        if skip:
+            continue
         tracks[number] = {'name': name, 'track': track, 'number': number, 'keys': keys}
     if excelpath:
         wb = openpyxl.Workbook()
@@ -105,6 +111,17 @@ def logs_to_excel(logdir, excelpath):
             for row in track:
                 ws.append([row.get(k) for k in keys])
         wb.save(excelpath)
+    if csvpath:
+        for widx, number in enumerate(sorted(tracks, reverse=True)):
+            name = tracks[number]['name']
+            track = tracks[number]['track']
+            keys = tracks[number]['keys']
+            trackcsv = f'{csvpath.rsplit('.', 1)[0]}_{number}.{csvpath.rsplit('.', 1)[1]}'
+            with open(trackcsv, mode='w', newline='') as fptr:
+                writer = csv.writer(fptr)
+                writer.writerow(list(keys.keys()))
+                for row in track:
+                    writer.writerow([row.get(k) for k in keys])
 
 
 if __name__ == '__main__':
@@ -112,7 +129,13 @@ if __name__ == '__main__':
         description='Convert a diretcory of telemetry logs into a track record')
     parser.add_argument('logdir', help='Log directory')
     parser.add_argument('-o' ,'--output', help='Track file path')
-    parser.add_argument('-x' ,'--excel', help='Data to excel path')
+    parser.add_argument('-x' ,'--excel', help='Excel file output path')
+    parser.add_argument(
+        '-c' ,'--csv',
+        help='Base output csv path -- this will have the run numb er added to '
+        'it before the extension.')
+    parser.add_argument('-r', '--runs', help='Comma-separated list of run numbers to process.')
     opts = parser.parse_args()
-    logs_to_tracks(opts.logdir, opts.output)
-    logs_to_excel(opts.logdir, opts.excel)
+    runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
+    logs_to_tracks(opts.logdir, opts.output, runs)
+    logs_to_excel(opts.logdir, opts.excel, opts.csv, runs)
