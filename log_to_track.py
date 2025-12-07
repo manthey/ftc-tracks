@@ -12,11 +12,14 @@ Setting,showArrows,false
 Robot,0,https://manthey.github.io/ftc-tracks/decodebot33dpi.png,8.25,8.75,8.25,8.75
 Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
     tracks = {}
-    for file in os.listdir(sys.argv[1]):
+    for file in os.listdir(logdir):
         if not file.endswith('csv'):
             continue
-        number = int(file.split('_')[3].split('.')[0])
-        name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+        try:
+            number = int(file.split('_')[3].split('.')[0])
+            name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+        except Exception:
+            continue
         track = []
         t0 = None
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
@@ -49,11 +52,14 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
     import openpyxl
 
     tracks = {}
-    for file in os.listdir(sys.argv[1]):
+    for file in os.listdir(logdir):
         if not file.endswith('csv'):
             continue
-        number = int(file.split('_')[3].split('.')[0])
-        name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+        try:
+            number = int(file.split('_')[3].split('.')[0])
+            name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+        except Exception:
+            continue
         track = []
         t0 = None
         state = None
@@ -116,7 +122,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
             name = tracks[number]['name']
             track = tracks[number]['track']
             keys = tracks[number]['keys']
-            trackcsv = f'{csvpath.rsplit('.', 1)[0]}_{number}.{csvpath.rsplit('.', 1)[1]}'
+            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{number}.{csvpath.rsplit(".", 1)[1]}'
             with open(trackcsv, mode='w', newline='') as fptr:
                 writer = csv.writer(fptr)
                 writer.writerow(list(keys.keys()))
