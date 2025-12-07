@@ -59,6 +59,12 @@
                     <option value="without">Run without Encoder</option>
                 </select>
             </label>
+            <label>Zero Power:
+                <select id="zeroPower">
+                    <option value="brake">Brake</option>
+                    <option value="float">Float</option>
+                </select>
+            </label>
             <label>Start: <input type="text" inputmode="decimal" id="start" value="0.0" step="0.1"></label>
             <label>Target: <input type="text" inputmode="decimal" id="target" value="1.0" step="0.1"></label>
             <label>Position: <input type="text" inputmode="decimal" id="ptarget" value="2000" step="1"> ticks</label>
@@ -114,6 +120,7 @@ class Motor {
         this.speedFraction = values.speedFraction;
         this.supplyVoltage = values.supplyVoltage;
         this.supplyResistance = values.supplyResistance;
+        this.zeroPower = values.zeroPower;
         this.maxControlOutput = 32767;
         this.lastTorque = 0;
         this.torqueElecConstant = 0.00015 / 2.18;  // 150 uH / ohm
@@ -135,6 +142,9 @@ class Motor {
         // this is velRadPerSec * Ke / supplyVoltage, since 
         // Ke = supplyVoltage / (this.freeSpeed / 60 * Math.PI * 2)
         let backEMF = normalizedVelocity;
+        if (normalizedControl === 0 && this.zeroPower === 'float') {
+            backEMF = 0;
+        }
         // handle battery sag
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
         normalizedControl *= (this.supplyVoltage - drawCurrent * this.supplyResistance) / this.supplyVoltage;
@@ -171,7 +181,6 @@ class Motor {
         const staticMag = this.staticFriction * blendStatic;
         const staticTorque = Math.sign(motorTorque) * Math.min(staticMag, Math.abs(motorTorque));
         frictionTorque = frictionTorque * (1 - blendStatic) + staticTorque * blendStatic;
-        frictionTorque = Math.sign(frictionTorque) * Math.min(this.staticFriction, Math.abs(frictionTorque));
 
         const accelerationRadPerSec2 = (motorTorque - frictionTorque) / (this.motorInertia + this.loadInertia);
         this.acceleration = accelerationRadPerSec2 * (this.maxTicksPerSec / (this.freeSpeed / 60 * Math.PI * 2));
@@ -262,7 +271,7 @@ function simulate() {
         let target = v.target;
         const time = step * simDt;
 
-        if (v.mode === 'without') {
+        if (v.mode === 'without' || (target === 0 && motor.zeroPower === 'float')) {
             targetValue = target * motor.maxTicksPerSec;
         } else {
             targetValue = target * motor.maxTicksPerSec * motor.speedFraction;
