@@ -174,10 +174,10 @@ class Motor {
         // aproximate stribeck effect at slow speeds
         const vStribeckNorm = 0.001;  
         const vAbsNorm = Math.abs(normalizedVelocity);
-        const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.coulombFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
+        const blendStatic = Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)); 
+        const dryFrictionMag = this.staticFriction * blendStatic + this.coulombFriction * (1 - blendStatic);
                             
         frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
-        const blendStatic = Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)); 
 
         const staticMag = this.staticFriction * blendStatic;
         const staticTorque = Math.sign(motorTorque) * Math.min(staticMag, Math.abs(motorTorque));
@@ -275,7 +275,7 @@ function simulate() {
         let target = v.target;
         const time = step * simDt;
 
-        if (v.mode === 'without' || (target === 0 && motor.zeroPower === 'float')) {
+        if (v.mode === 'without') {
             targetValue = target * motor.maxTicksPerSec;
         } else {
             targetValue = target * motor.maxTicksPerSec * motor.speedFraction;
@@ -297,7 +297,7 @@ function simulate() {
         }
         // Update control at 20Hz
         if (time - lastControlTime >= controlDt) {
-            if (v.mode === 'without') {
+            if (v.mode === 'without' || (target === 0 && motor.zeroPower === 'float')) {
                 nextControlOutput = Math.round(motor.maxControlOutput * target);
             } else {
                 const intVelocity = (Math.floor(motor.position) - (motor.lastIntPosition || 0));
