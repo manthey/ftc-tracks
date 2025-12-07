@@ -177,7 +177,8 @@ class Motor {
         const dryFrictionMag = this.staticFriction * Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)) + this.coulombFriction * (1 - Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)));
                             
         frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
-        const blendStatic = Math.exp(-vAbsNorm / vStribeckNorm);  
+        const blendStatic = Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)); 
+
         const staticMag = this.staticFriction * blendStatic;
         const staticTorque = Math.sign(motorTorque) * Math.min(staticMag, Math.abs(motorTorque));
         frictionTorque = frictionTorque * (1 - blendStatic) + staticTorque * blendStatic;
@@ -188,6 +189,9 @@ class Motor {
         this.position += this.velocity * dt;
 
         this.velocity = Math.max(-this.maxTicksPerSec, Math.min(this.maxTicksPerSec, this.velocity));
+        if (Math.abs(this.velocity) < 0.05) {
+            this.velocity = 0;
+        }
     }
 }
 
