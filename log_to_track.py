@@ -5,7 +5,7 @@ import os
 import sys
 
 
-def logs_to_tracks(logdir, output, runs, realign=False):
+def logs_to_tracks(logdir, output, runs, realign=False, oldest=False):
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -25,11 +25,12 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             continue
         track = []
         basepose = None
-        if lastpose is not None and not name.startswith('Auto') and realign:
+        if lastpose is not None and 'Auto' not in name and realign:
             basepose = tuple(list(lastpose))
         startpose = None
         t0 = None
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
+            print(file)
             reader = csv.reader(fptr)
             for line in reader:
                 if len(line) == 5 and line[3] == 'Field position':
@@ -39,6 +40,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                     x, y, h = (float(v.strip('"')) for v in line[4].strip('"').split())
                     if startpose is None and basepose is not None:
                         startpose = (x, y, h, (basepose[2] - h) * math.pi / 180)
+                        print('Realigning')
                     if basepose is not None:
                         x1 = x - startpose[0]
                         y1 = y - startpose[1]
@@ -48,11 +50,13 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         x, y, h = round(x2 + basepose[0], 2), round(y2 + basepose[1], 2), round(h1 + basepose[2], 2)
                     track.append((t - t0, x, y, h))
                     lastpose = (x, y, h)
+                    if abs(x) > 72 or abs(y) > 72:
+                        lastpose = None
         lastname, lastnum = name.split('-')[0], number
         if len(track) < 2:
             continue
         tracks[number] = {'name': name, 'track': track, 'number': number}
-    for number in sorted(tracks, reverse=True):
+    for number in sorted(tracks, reverse=not oldest):
         name = tracks[number]['name']
         track = tracks[number]['track']
         skip = runs and number not in runs
@@ -140,7 +144,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
             name = tracks[number]['name']
             track = tracks[number]['track']
             keys = tracks[number]['keys']
-            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{number}.{csvpath.rsplit(".", 1)[1]}'
+            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{name}.{csvpath.rsplit(".", 1)[1]}'
             with open(trackcsv, mode='w', newline='') as fptr:
                 writer = csv.writer(fptr)
                 writer.writerow(list(keys.keys()))
@@ -156,6 +160,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '--realign', action='store_true',
         help='Realign teleop paths to previous path')
+    parser.add_argument(
+        '--oldest', action='store_true',
+        help='Show oldest tracks first')
     parser.add_argument('-x' ,'--excel', help='Excel file output path')
     parser.add_argument(
         '-c' ,'--csv',
@@ -164,5 +171,5 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--runs', help='Comma-separated list of run numbers to process.')
     opts = parser.parse_args()
     runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
-    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign)
+    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs)
