@@ -40,7 +40,7 @@ body{font-family:system-ui,sans-serif;margin:0}
 <div class="btns"><button onclick="apply()">Apply</button></div>
 </div></div>
 <script>
-let D=[],H=[],numCols=[];
+let CSVData=[],Columns=[],numericalCols=[];
 const LDASH=['solid','dot','dashdot','longdash'];
 const RDASH=['dash','longdashdot','5,3,1,3','1,4'];
 const PAL=['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
@@ -59,20 +59,45 @@ function parseCSV(t){
   }
   return out;
 }
+function getEnum(col, maxUnique) {
+  maxUnique = maxUnique || 20;
+  const valueCounts = new Map();
+  let total = 0;
+
+  for (let i = 1; i < CSVData.length; i++) {
+    const v = CSVData[i]?.[col];
+    if (v !== '' && v != null) {
+      const key = String(v).trim();
+      valueCounts.set(key, (valueCounts.get(key) || 0) + 1);
+      total++;
+      if (valueCounts.size > maxUnique) return null;
+    }
+  }
+  if (valueCounts.size < 2 || valueCounts.size === total) return null;
+  const labels = [...valueCounts.keys()].sort((a, b) => {
+    const na = parseFloat(a), nb = parseFloat(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+  const toNum = Object.fromEntries(labels.map((v, i) => [v, i]));
+  return { labels, toNum, counts: valueCounts };
+}
 function isNum(col){
   let n=0;
-  for(let i=1;i<Math.min(D.length,50);i++){
-    const v=D[i]?.[col];
+  for(let i=1;i<Math.min(CSVData.length,50);i++){
+    const v=CSVData[i]?.[col];
     if(v!==''&&v!=null&&!isNaN(+v))n++;
   }
   return n>0;
 }
 function init(){
-  const x=document.getElementById('xSel'),c=document.getElementById('catSel');
-  const lc=document.getElementById('lChk'),rc=document.getElementById('rChk');
+  const x = document.getElementById('xSel');
+  const c = document.getElementById('catSel');
+  const lc = document.getElementById('lChk');
+  const rc = document.getElementById('rChk');
   x.innerHTML='';c.innerHTML='<option value="">None</option>';lc.innerHTML='';rc.innerHTML='';
-  H.forEach((h,i)=>{
-    if(numCols.includes(i)){
+  Columns.forEach((h,i)=>{
+    if (numericalCols.includes(i)) {
       x.add(new Option(h,i));
       lc.innerHTML+=`<label><input type="checkbox" name="L" value="${i}"> ${h}</label>`;
       rc.innerHTML+=`<label><input type="checkbox" name="R" value="${i}"> ${h}</label>`;
@@ -86,26 +111,43 @@ function hide(){document.getElementById('modal').classList.remove('open');}
 function apply(){drawPlot();hide();}
 
 function drawPlot(){
-  const xi=+document.getElementById('xSel').value;
-  const ci=document.getElementById('catSel').value;
-  const L=getChecked('L'),R=getChecked('R');
-  const rows=D.slice(1);
-  const xVals=rows.map(r=>{const v=r[xi];return isNaN(+v)?v:+v;});
-  const cats=ci!==''?rows.map(r=>r[ci]||''):null;
-  const uniqCats=cats?[...new Set(cats)]:null;
-  const catCol={};
-  if(uniqCats)uniqCats.forEach((c,i)=>catCol[c]=PAL[i%PAL.length]);
+  const xi = +document.getElementById('xSel').value;
+  const ci = document.getElementById('catSel').value;
+  const L = getChecked('L'),R=getChecked('R');
+  const rows = CSVData.slice(1);
+  const xVals = rows.map(r=>{const v=r[xi];return isNaN(+v)?v:+v;});
+  const cats = ci !== '' ? rows.map(r=>r[ci]||'') : null;
+  const uniqCats = cats ? [...new Set(cats)] : null;
+  const catCol = {};
+  if (uniqCats) {
+    uniqCats.forEach((c,i) => catCol[c] = PAL[i % PAL.length]);
+  }    
   const traces=[];
 
   function addSeries(yiList,yaxis,dashList,suffix){
     yiList.forEach((yi,si)=>{
-      const yAll=rows.map(r=>parseFloat(r[yi]));
+      let yAll, text;
+      let hovertemplate = '%{y:.5g}';
+      if (isNum(yi)) {
+        yAll = rows.map(r=>parseFloat(r[yi]));
+      } else {
+        const eVals = getEnum(yi);
+        yAll = rows.map(r=>eVals.toNum[r[yi]]);
+        text = rows.map(r=>r[yi]);
+        hovertemplate = '%{text}';
+      }
       const dash=dashList[si%dashList.length];
       const baseColor=PAL[(yaxis==='y'?si:L.length+si)%PAL.length];
       if(!cats){
-        traces.push({x:xVals,y:yAll,name:H[yi]+suffix,yaxis,mode:'lines',
+        traces.push({
+          x:xVals,
+          y:yAll,
+          name:Columns[yi]+suffix,
+          yaxis,
+          text: text,
+          mode:'lines',
           line:{dash,width:2,color:baseColor},
-          hovertemplate:`%{y:.5g}`});
+          hovertemplate:hovertemplate});
       }else{
         const segs=[];let cur={cat:cats[0],start:0};
         for(let i=1;i<cats.length;i++){
@@ -117,10 +159,17 @@ function drawPlot(){
           const xf=xVals.slice(start,seg.end+1);
           const yf=yAll.slice(start,seg.end+1);
           const cf=cats.slice(start,seg.end+1);
-          traces.push({x:xf,y:yf,name:H[yi]+suffix,showlegend:segi===0,legendgroup:H[yi]+yaxis,
-            yaxis,mode:'lines',line:{dash,width:2,color:catCol[seg.cat]},
+          traces.push({
+            x:xf,
+            y:yf,
+            name:Columns[yi]+suffix,
+            showlegend:segi===0,
+            legendgroup:Columns[yi]+yaxis,
+            yaxis,
+            mode:'lines',
+            line:{dash,width:2,color:catCol[seg.cat]},
             customdata:cf.map(c=>[c]),
-            hovertemplate:`%{y:.5g} [%{customdata[0]}]`});
+            hovertemplate:hovertemplate + ' [%{customdata[0]}]'});
         });
       }
     });
@@ -132,15 +181,15 @@ function drawPlot(){
     margin:{l:80,r:80,t:30,b:50},
     hovermode:'x unified',
     xaxis:{
-      title:H[xi],
+      title:Columns[xi],
       showspikes:true,
       spikemode:'across',
       spikethickness:1,
       spikecolor:'#999',
       spikedash:'solid'
     },
-    yaxis:{title:L.map(i=>H[i]).join(', ')},
-    yaxis2:{title:R.map(i=>H[i]).join(', '),overlaying:'y',side:'right',showgrid:false},
+    yaxis:{title:L.map(i=>Columns[i]).join(', ')},
+    yaxis2:{title:R.map(i=>Columns[i]).join(', '),overlaying:'y',side:'right',showgrid:false},
     legend:{orientation:'h',y:1.05,x:0.5,xanchor:'center'}
   },{responsive:true});
 }
@@ -149,8 +198,9 @@ document.getElementById('file').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
   r.onload=ev=>{
-    D=parseCSV(ev.target.result);H=D[0]||[];
-    numCols=H.map((_,i)=>i).filter(isNum);
+    CSVData=parseCSV(ev.target.result);
+    Columns=CSVData[0]||[];
+    numericalCols=Columns.map((_,i)=>i).filter((i) => isNum(i) || getEnum(i));
     init();document.getElementById('cfg').disabled=false;
     show();
   };
