@@ -111,6 +111,8 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
                     nums = [float(v) for v in re.sub(r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
                 except Exception:
                     nums = None
+                if line[3] == 'Next State':
+                    nums = None
                 if nums is None or len(nums) == 1:
                     keys[line[3]] = True
                     state[line[3]] = line[4] if nums is None else nums[0]
