@@ -6,7 +6,7 @@ import re
 import sys
 
 
-def logs_to_tracks(logdir, output, runs, realign=False, oldest=False):
+def logs_to_tracks(logdir, output, runs, realign=False, oldest=False):  # noqa
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -14,7 +14,6 @@ Setting,showArrows,false
 Robot,0,https://manthey.github.io/ftc-tracks/decodebot33dpi.png,8.25,8.75,8.25,8.75
 Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
     tracks = {}
-    lastname, lastnum = None, None
     lastpose = None
     for file in sorted(os.listdir(logdir), reverse=True):
         if not file.endswith('csv'):
@@ -48,12 +47,12 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         h1 = h - startpose[2]
                         x2 = x1 * math.cos(startpose[3]) - y1 * math.sin(startpose[3])
                         y2 = x1 * math.sin(startpose[3]) + y1 * math.cos(startpose[3])
-                        x, y, h = round(x2 + basepose[0], 2), round(y2 + basepose[1], 2), round(h1 + basepose[2], 2)
+                        x, y, h = round(x2 + basepose[0], 2), round(y2 + basepose[1], 2), round(
+                            h1 + basepose[2], 2)
                     track.append((t - t0, x, y, h))
                     lastpose = (x, y, h)
                     if abs(x) > 72 or abs(y) > 72:
                         lastpose = None
-        lastname, lastnum = name.split('-')[0], number
         if len(track) < 2:
             continue
         tracks[number] = {'name': name, 'track': track, 'number': number}
@@ -71,10 +70,11 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         open(output, 'w').write('\n'.join(out) + '\n')
 
 
-def logs_to_excel(logdir, excelpath, csvpath, runs):
+def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
     import openpyxl
 
     tracks = {}
+    keyTimes = {}
     for file in os.listdir(logdir):
         if not file.endswith('csv'):
             continue
@@ -89,6 +89,8 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
         keys = {}
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
             reader = csv.reader(fptr)
+            lastT = 0
+            lastKey = None
             for line in reader:
                 if len(line) < 5:
                     continue
@@ -107,6 +109,14 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
                     state['count'] = len(track)
                 if state is None:
                     continue
+                if line[3] not in keyTimes:
+                    keyTimes[line[3]] = []
+                if lastKey is not None:
+                    key = line[3]
+                    # key = lastKey
+                    keyTimes[key].append(float(line[0]) - lastT)
+                lastT = float(line[0])
+                lastKey = line[3]
                 try:
                     nums = [float(v) for v in re.sub(r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
                 except Exception:
@@ -145,7 +155,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
                 ws.append([row.get(k) for k in keys])
         wb.save(excelpath)
     if csvpath:
-        for widx, number in enumerate(sorted(tracks, reverse=True)):
+        for number in sorted(tracks, reverse=True):
             name = tracks[number]['name']
             track = tracks[number]['track']
             keys = tracks[number]['keys']
@@ -155,26 +165,50 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
                 writer.writerow(list(keys.keys()))
                 for row in track:
                     writer.writerow([row.get(k) for k in keys])
+    if stepSummary:
+        if stepSummary == 'mean':
+            keyTimes = {
+                k: sum(keyTimes[k]) / len(keyTimes[k])
+                for k in keyTimes if len(keyTimes[k]) >= 10}
+        elif stepSummary == 'median':
+            keyTimes = {
+                k: sorted(keyTimes[k])[len(keyTimes[k]) // 2]
+                for k in keyTimes if len(keyTimes[k]) >= 10}
+        elif stepSummary in {'low', 'high'}:
+            keyTimes = {
+                k: sorted(keyTimes[k], reverse=stepSummary == 'high')[0]
+                for k in keyTimes if len(keyTimes[k]) >= 10}
+        elif stepSummary in {'quartile1', 'quartile3'}:
+            keyTimes = {
+                k: sorted(keyTimes[k], reverse=stepSummary == 'quartile3')[len(keyTimes[k]) // 4]
+                for k in keyTimes if len(keyTimes[k]) >= 10}
+        print(f'Summary: {stepSummary}')
+        for k, v in sorted(keyTimes.items(), key=lambda x: -x[1]):
+            print(f'{v:7.5f}s {k}')
+        print(f'{sum(v for v in keyTimes.values()):7.5f}s')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Convert a diretcory of telemetry logs into a track record')
     parser.add_argument('logdir', help='Log directory')
-    parser.add_argument('-o' ,'--output', help='Track file path')
+    parser.add_argument('-o', '--output', help='Track file path')
     parser.add_argument(
         '--realign', action='store_true',
         help='Realign teleop paths to previous path')
     parser.add_argument(
         '--oldest', action='store_true',
         help='Show oldest tracks first')
-    parser.add_argument('-x' ,'--excel', help='Excel file output path')
+    parser.add_argument('-x', '--excel', help='Excel file output path')
     parser.add_argument(
-        '-c' ,'--csv',
+        '-c', '--csv',
         help='Base output csv path -- this will have the run numb er added to '
         'it before the extension.')
     parser.add_argument('-r', '--runs', help='Comma-separated list of run numbers to process.')
+    parser.add_argument(
+        '-s', '--step', choices=['mean', 'median', 'low', 'high', 'quartile1', 'quartile3'],
+        help='Print a summary of how log different steps take.')
     opts = parser.parse_args()
     runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
     logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest)
-    logs_to_excel(opts.logdir, opts.excel, opts.csv, runs)
+    logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)
