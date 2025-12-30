@@ -2,6 +2,7 @@ import argparse
 import csv
 import math
 import os
+import re
 import sys
 
 
@@ -102,10 +103,12 @@ def logs_to_excel(logdir, excelpath, csvpath, runs):
                         t0 = t
                     keys['time'] = True
                     state['time'] = t - t0
+                    keys['count'] = True
+                    state['count'] = len(track)
                 if state is None:
                     continue
                 try:
-                    nums = [float(v) for v in line[4].replace(':', ' ').split()]
+                    nums = [float(v) for v in re.sub(r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
                 except Exception:
                     nums = None
                 if nums is None or len(nums) == 1:
