@@ -87,6 +87,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         t0 = None
         state = None
         keys = {}
+        skip = runs and number not in runs
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
             reader = csv.reader(fptr)
             lastT = 0
@@ -111,7 +112,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                     continue
                 if line[3] not in keyTimes:
                     keyTimes[line[3]] = []
-                if lastKey is not None:
+                if lastKey is not None and not skip:
                     key = line[3]
                     # key = lastKey
                     keyTimes[key].append(float(line[0]) - lastT)
@@ -133,10 +134,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                         state[key] = v
             if state is not None:
                 track.append(state)
-        if len(track) < 2:
-            continue
-        skip = runs and number not in runs
-        if skip:
+        if len(track) < 2 or skip:
             continue
         tracks[number] = {'name': name, 'track': track, 'number': number, 'keys': keys}
     if excelpath:
