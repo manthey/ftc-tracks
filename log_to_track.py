@@ -64,8 +64,15 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         if skip:
             continue
         out.append(f'Path,{name}')
+        last = 0
         for idx, (t, x, y, h) in enumerate(track):
-            out.append(f'Point{idx},{x},{y},{h},,,{t - track[max(idx - 1, 0)][0]}')
+            if (idx and idx != len(track) - 1 and
+                    abs(x - track[last][1]) <= 0.02 and
+                    abs(y - track[last][2]) <= 0.02 and
+                    abs(h - track[last][3]) <= 0.05):
+                continue
+            out.append(f'P{idx},{x},{y},{h},,,{t - track[last][0]:.6f}'.rstrip('0'))
+            last = idx
     if output:
         open(output, 'w').write('\n'.join(out) + '\n')
 
@@ -95,7 +102,8 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
             for line in reader:
                 if len(line) < 5:
                     continue
-                if line[3] == 'loop time':
+                key = line[3]
+                if key == 'loop time':
                     if state is not None:
                         track.append(state)
                         state = state.copy()
@@ -110,28 +118,27 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                     state['count'] = len(track)
                 if state is None:
                     continue
-                if line[3] not in keyTimes:
-                    keyTimes[line[3]] = []
+                if key not in keyTimes:
+                    keyTimes[key] = []
                 if lastKey is not None and not skip:
-                    key = line[3]
-                    # key = lastKey
                     keyTimes[key].append(float(line[0]) - lastT)
                 lastT = float(line[0])
-                lastKey = line[3]
+                lastKey = key
+                nums = None
                 try:
-                    nums = [float(v) for v in re.sub(r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
+                    if not re.search(r'[a-zA-Z][^0-9+\-.]', line[4]):
+                        nums = [float(v) for v in re.sub(
+                            r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
                 except Exception:
-                    nums = None
-                if line[3] == 'Next State':
-                    nums = None
-                if nums is None or len(nums) == 1:
-                    keys[line[3]] = True
-                    state[line[3]] = line[4] if nums is None else nums[0]
+                    pass
+                if nums is None or len(nums) <= 1:
+                    keys[key] = True
+                    state[key] = line[4] if nums is None or len(nums) < 1 else nums[0]
                 else:
                     for idx, v in enumerate(nums):
-                        key = f'{line[3]} {idx + 1}'
-                        keys[key] = True
-                        state[key] = v
+                        nkey = f'{key} {idx + 1}'
+                        keys[nkey] = True
+                        state[nkey] = v
             if state is not None:
                 track.append(state)
         if len(track) < 2 or skip:
