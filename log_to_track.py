@@ -15,12 +15,13 @@ Robot,0,https://manthey.github.io/ftc-tracks/decodebot33dpi.png,8.25,8.75,8.25,8
 Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
     tracks = {}
     lastpose = None
-    for file in sorted(os.listdir(logdir), reverse=True):
+    for file in sorted(os.listdir(logdir), reverse=False):
         if not file.endswith('csv'):
             continue
         try:
-            number = int(file.split('_')[3].split('.')[0])
-            name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+            match = re.match(r'^[^_]+_((?P<number>\d{4})|\d{3})_(?P<name>[^_]+)(|_(?P<number2>\d+))\.', file)
+            number = int(match.group('number') or match.group('number2'))
+            name = match.group('name')
         except Exception:
             continue
         track = []
@@ -86,8 +87,9 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         if not file.endswith('csv'):
             continue
         try:
-            number = int(file.split('_')[3].split('.')[0])
-            name = file.split('_')[2] + '-' + file.split('_')[3].split('.')[0]
+            match = re.match(r'^[^_]+_((?P<number>\d{4})|\d{3})_(?P<name>[^_]+)(|_(?P<number2>\d+))\.', file)
+            number = int(match.group('number') or match.group('number2'))
+            name = match.group('name')
         except Exception:
             continue
         track = []
