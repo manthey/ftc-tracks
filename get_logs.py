@@ -44,7 +44,7 @@ def main():
         if os.path.exists(dest_path):
             continue
         print(item.Name, item.Path)
-        # dest.CopyHere(item, 4 | 16 | 512 | 1024)
+        dest.CopyHere(item, 4 | 16 | 512 | 1024)
 
     pythoncom.CoUninitialize()
 

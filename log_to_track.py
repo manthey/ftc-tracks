@@ -166,7 +166,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
             name = tracks[number]['name']
             track = tracks[number]['track']
             keys = tracks[number]['keys']
-            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{name}.{csvpath.rsplit(".", 1)[1]}'
+            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{number}_{name}.{csvpath.rsplit(".", 1)[1]}'
             with open(trackcsv, mode='w', newline='') as fptr:
                 writer = csv.writer(fptr)
                 writer.writerow(list(keys.keys()))
