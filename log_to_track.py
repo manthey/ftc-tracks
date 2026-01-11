@@ -6,7 +6,7 @@ import re
 import sys
 
 
-def logs_to_tracks(logdir, output, runs, realign=False, oldest=False):  # noqa
+def logs_to_tracks(logdir, output, runs, realign=False, oldest=False, useTarget=False):  # noqa
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -34,7 +34,8 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             print(file)
             reader = csv.reader(fptr)
             for line in reader:
-                if len(line) == 5 and line[3] == 'Field position':
+                if len(line) == 5 and line[3] == (
+                        'Field position' if not useTarget else 'Target position'):
                     t = float(line[0])
                     if t0 is None:
                         t0 = t
@@ -213,9 +214,11 @@ if __name__ == '__main__':
         'it before the extension.')
     parser.add_argument('-r', '--runs', help='Comma-separated list of run numbers to process.')
     parser.add_argument(
+        '--target', action='store_true', help='Use the target position, not the field position.')
+    parser.add_argument(
         '-s', '--step', choices=['mean', 'median', 'low', 'high', 'quartile1', 'quartile3'],
         help='Print a summary of how log different steps take.')
     opts = parser.parse_args()
     runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
-    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest)
+    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)
