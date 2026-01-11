@@ -1,25 +1,27 @@
 const defaultSettings = {
-  maxSpeed: 60,  // inches per second
-  defaultSpeed: 0.75,  // driveTo default
-  stopTime: 0.5,  // seconds when driveTo stops
   asArrows: false,  // how to render robot
-  matsAs24: true, // true to pretend mats are 24 inches rather than 23.625
-  showText: true,
-  showArrows: true,
-  showPath: true,
-  fixedTimes: false,
-  playInitialPause: 3,
-  playFinalPause: 3,
-  fullSpeedDistance: 12,
-  noStopFullSpeedDistance: 12,
-  minSpeed: 0.1,
-  timeToSpeedUp: 0.5,
-  fixedTimes: false,
+  defaultSpeed: 0.75,  // driveTo default
   field: ['intothedeep.png', 72, 72, 72, 72],  // url, left, top, right, bot
+  fixedTimes: false,
+  fixedTimes: false,
+  fullSpeedDistance: 12,
+  matsAs24: true, // true to pretend mats are 24 inches rather than 23.625
+  maxSpeed: 60,  // inches per second
+  minSpeed: 0.1,
+  noStopFullSpeedDistance: 12,
+  parts: [],
+  playFinalPause: 3,
+  playInitialPause: 3,
   robots: [  // url, left, front, right, back
     ['robot30dpi282x365.png', 9.4, 12.166, 9.3, 8.9],
     ['robot_ext30dpi261x572.png', 8.7, 19.066, 8.6, 8.666]
-  ]
+  ],
+  showArrows: true,
+  showPath: true,
+  showRobot: true,
+  showText: true,
+  stopTime: 0.5,  // seconds when driveTo stops
+  timeToSpeedUp: 0.5,
 };
 
 /* Decode query components into a dictionary of values.
@@ -27,15 +29,14 @@ const defaultSettings = {
  * @returns {object}: the query parameters as a dictionary.
  */
 function getQuery() {
-  var query = document.location.search.replace(/(^\?)/, '').split(
-    '&').map(function (n) {
+  var query = document.location.hash.replace(/(^#)/, '').split('&').map(function (n) {
     n = n.split('=');
     if (n[0]) {
       this[decodeURIComponent(n[0].replace(/\+/g, '%20'))] = decodeURIComponent(n[1].replace(/\+/g, '%20'));
     }
     return this;
   }.bind({}))[0];
-  return query;
+  return query || {};
 }
 
 /* Encode a dictionary of parameters to the query string, setting the window
@@ -53,7 +54,7 @@ function setQuery(params, updateHistory) {
     }
   });
   var newurl = window.location.protocol + '//' + window.location.host +
-      window.location.pathname + '?' + $.param(params);
+      window.location.pathname + '#' + $.param(params);
   if (updateHistory) {
     window.history.pushState(params, '', newurl);
   } else {
@@ -70,6 +71,61 @@ function syncSliderWithInput(slider, input) {
   });
 }
 
+function addRobotImage(project, quadData, idx, pos, rnum) {
+  if (idx <= quadData.length) {
+    quadData.push(Object.assign({}, quadData[quadData.length-1]));
+  }
+  var left = project.settings.robots[rnum][1];
+  var front = project.settings.robots[rnum][2];
+  var right = project.settings.robots[rnum][3];
+  var back = project.settings.robots[rnum][4];
+  quadData[idx].image = project.settings.robots[rnum][0];
+  quadData[idx].ur = {
+    x: pos.x + front * Math.cos(pos.angle) - right * Math.sin(pos.angle),
+    y: pos.y + front * Math.sin(pos.angle) + right * Math.cos(pos.angle)};
+  quadData[idx].lr = {
+    x: pos.x + -back * Math.cos(pos.angle) - right * Math.sin(pos.angle),
+    y: pos.y + -back * Math.sin(pos.angle) + right * Math.cos(pos.angle)};
+  quadData[idx].ll = {
+    x: pos.x + -back * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
+    y: pos.y + -back * Math.sin(pos.angle) + -left * Math.cos(pos.angle)};
+  quadData[idx].ul = {
+    x: pos.x + front * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
+    y: pos.y + front * Math.sin(pos.angle) + -left * Math.cos(pos.angle)};
+  return idx + 1;
+}
+
+function addPartImage(project, quadData, idx, pos, partdata) {
+  let pnum = partdata[0];
+  let x = pos.x - partdata[1] * Math.sin(pos.angle) + partdata[2] * Math.cos(pos.angle);
+  let y = pos.y + partdata[1] * Math.cos(pos.angle) + partdata[2] * Math.sin(pos.angle);
+  let angle = pos.angle + partdata[3] * (Math.PI / 180);
+  if (!project.settings.parts[pnum] || !isFinite(x) || !isFinite(y) || !isFinite(angle)) {
+    return idx;
+  }
+  if (idx <= quadData.length) {
+    quadData.push(Object.assign({}, quadData[quadData.length-1]));
+  }
+  var left = project.settings.parts[pnum][1];
+  var front = project.settings.parts[pnum][2];
+  var right = project.settings.parts[pnum][3];
+  var back = project.settings.parts[pnum][4];
+  quadData[idx].image = project.settings.parts[pnum][0];
+  quadData[idx].ur = {
+    x: x + front * Math.cos(angle) - right * Math.sin(angle),
+    y: y + front * Math.sin(angle) + right * Math.cos(angle)};
+  quadData[idx].lr = {
+    x: x + -back * Math.cos(angle) - right * Math.sin(angle),
+    y: y + -back * Math.sin(angle) + right * Math.cos(angle)};
+  quadData[idx].ll = {
+    x: x + -back * Math.cos(angle) - -left * Math.sin(angle),
+    y: y + -back * Math.sin(angle) + -left * Math.cos(angle)};
+  quadData[idx].ul = {
+    x: x + front * Math.cos(angle) - -left * Math.sin(angle),
+    y: y + front * Math.sin(angle) + -left * Math.cos(angle)};
+  return idx + 1;
+}
+
 function updateImage(project, track) {
   var markers = track.layer().features()[6];
   if (!markers) {
@@ -77,49 +133,43 @@ function updateImage(project, track) {
   }
   mdata = markers.data();
   const quadData = project.quadData;
-  while (quadData.length > mdata.length + 1 && quadData.length > 2) {
-    quadData.pop();
-  }
-  while (quadData.length < mdata.length + 1) {
-    quadData.push(Object.assign({}, quadData[quadData.length-1]));
-  }
+  let qidx = 1;
   let tpos = project.track.calculateTimePosition(project.track.endTime(), undefined, true);
   mdata.forEach((mdat, idx) => {
-    if (!mdat[0].show || project.settings.asArrows) {
-      quadData[idx + 1].ur = quadData[idx + 1].lr = quadData[idx + 1].ll = quadData[idx + 1].ul = {x: -1000, y: -1000};
+    if (!mdat[0].show || project.settings.asArrows || !project.settings.showRobot) {
+      if (qidx == 1) {
+        quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = {x: -1000, y: -1000};
+      }
       return;
     }
     var pos = markers.position()(mdat, idx);
     if (!isFinite(pos.x) || !isFinite(pos.y) || !isFinite(pos.angle) || pos.x < -100 || pos.x > 100 || pos.y < -100 || pos.y > 100) {
-      quadData[idx + 1].ur = quadData[idx + 1].lr = quadData[idx + 1].ll = quadData[idx + 1].ul = {x: -1000, y: -1000};
+      if (qidx === 1) {
+        quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = {x: -1000, y: -1000};
+      }
       return;
     }
     pos.angle = markers.style('rotation')(mdat, idx);
     let rnum = project.track.data()[idx][tpos[idx].posidx !== undefined ? tpos[idx].posidx : (tpos[idx].factor0 >= 0.5 ? tpos[idx].posidx0 : tpos[idx].posidx1)].imgnum || 0;
-    if (rnum >= project.settings.length) {
+    if (rnum >= project.settings.robots.length) {
       rnum = 0;
     }
-    var left = project.settings.robots[rnum][1];
-    var front = project.settings.robots[rnum][2];
-    var right = project.settings.robots[rnum][3];
-    var back = project.settings.robots[rnum][4];
-    quadData[idx + 1].image = project.settings.robots[rnum][0];
-    quadData[idx + 1].ur = {
-      x: pos.x + front * Math.cos(pos.angle) - right * Math.sin(pos.angle),
-      y: pos.y + front * Math.sin(pos.angle) + right * Math.cos(pos.angle)};
-    quadData[idx + 1].lr = {
-      x: pos.x + -back * Math.cos(pos.angle) - right * Math.sin(pos.angle),
-      y: pos.y + -back * Math.sin(pos.angle) + right * Math.cos(pos.angle)};
-    quadData[idx + 1].ll = {
-      x: pos.x + -back * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
-      y: pos.y + -back * Math.sin(pos.angle) + -left * Math.cos(pos.angle)};
-    quadData[idx + 1].ul = {
-      x: pos.x + front * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
-      y: pos.y + front * Math.sin(pos.angle) + -left * Math.cos(pos.angle)};
+    qidx = addRobotImage(project, quadData, qidx, pos, rnum);
+    let pnum = project.track.data()[idx][tpos[idx].posidx !== undefined ? tpos[idx].posidx : (tpos[idx].factor0 >= 0.5 ? tpos[idx].posidx0 : tpos[idx].posidx1)].partnum || undefined;
+    if (pnum !== undefined) {
+      for (let pidx = 0; pidx < pnum.length - 3; pidx += 4) {
+        qidx = addPartImage(project, quadData, qidx, pos, pnum.slice(pidx, pidx + 4));
+      }
+    }
   });
+  while (quadData.length > qidx && quadData.length > 2) {
+    quadData.pop();
+  }
   project.quads.data(quadData);
-  mdata.forEach((mdat, idx) => {
-    project.quads.cacheUpdate(idx + 1);
+  quadData.forEach((qd, idx) => {
+    if (idx) {
+      project.quads.cacheUpdate(idx);
+    }
   });
   const settings = project.settings;
   const matScale = settings.matsAs24 ? 24.0 / 23.75 : 1;
@@ -188,6 +238,7 @@ function parsePaths(project) {
   Object.keys(settings).forEach(key => delete settings[key]);
   Object.assign(settings, defaultSettings);
   settings.robots = settings.robots.slice();
+  settings.parts = settings.parts.slice();
   for (let line of lines) {
     line = line.trim();
     if (!line || line.startsWith('#')) {
@@ -226,8 +277,18 @@ function parsePaths(project) {
           settings.robots[rnum] = [fields[2], parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5]), parseFloat(fields[6])];
         }
       } catch (err) { console.log(err); }
+    } else if (fields[0] === 'Part' && fields.length === 7) {
+      try {
+        const rnum = parseInt(fields[1], 10);
+        if (isFinite(fields[3]) && isFinite(fields[4]) && isFinite(fields[5]) && isFinite(fields[6]) && rnum >= 0) {
+          while (rnum >= settings.parts.length) {
+            settings.parts.push(settings.parts[0]);
+          }
+          settings.parts[rnum] = [fields[2], parseFloat(fields[3]), parseFloat(fields[4]), parseFloat(fields[5]), parseFloat(fields[6])];
+        }
+      } catch (err) { console.log(err); }
     } else if (currentPath && fields.length >= 4) {
-      let [id, x, y, heading, speed, stop, delay, imgnum] = fields;
+      let [id, x, y, heading, speed, stop, delay, imgnum, partnum] = fields;
 
       x = parseFloat(x);
       y = parseFloat(y);
@@ -236,6 +297,10 @@ function parsePaths(project) {
       stop = (stop !== undefined && stop !== '') ? stop.toLowerCase() === 'true' : true;
       delay = (delay !== undefined && delay !== '') ? parseFloat(delay) : 0;
       imgnum = (imgnum !== undefined && imgnum !== '') ? parseInt(imgnum, 10) : 0;
+      if (partnum !== undefined) {
+        const parts = partnum.split(/\s*:\s*/); // Split by colons, ignoring surrounding whitespace
+        partnum = parts.map((p) => parseFloat(p));
+      }
 
       if (
         id &&
@@ -252,7 +317,8 @@ function parsePaths(project) {
           speed,
           stop,
           delay: 0,
-          imgnum
+          imgnum,
+          partnum
         });
         if (delay) {
           paths[paths.length - 1].push({
@@ -264,7 +330,8 @@ function parsePaths(project) {
             speed,
             stop,
             delay,
-            imgnum
+            imgnum,
+            partnum
           });
         }
       }
@@ -487,10 +554,10 @@ function main() {
     })
     .position((d, i, e) => (e[0].show === false ? {x: -10000, y: -10000} : {x: d.x, y: -d.y}))
     .markerStyle({
-      symbol: (d) => project.settings.asArrows ? geo.markerFeature.symbols.arrow : geo.markerFeature.symbols.rectangle,
-      symbolValue: (d) => project.settings.asArrows ? [1, 1, 0, true] : 1,
-      radius: (d) => project.settings.asArrows ? 15 : 12.72 * 0.001, // 13.03, // seems like it should be 12.72
-      scaleWithZoom: (d) => project.settings.asArrows ? false : true,
+      symbol: (d) => project.settings.asArrows && project.settings.showRobot ? geo.markerFeature.symbols.arrow : geo.markerFeature.symbols.rectangle,
+      symbolValue: (d) => project.settings.asArrows && project.settings.showRobot  ? [1, 1, 0, true] : 1,
+      radius: (d) => project.settings.asArrows && project.settings.showRobot  ? 15 : 12.72 * 0.001, // 13.03, // seems like it should be 12.72
+      scaleWithZoom: (d) => project.settings.asArrows && project.settings.showRobot ? false : true,
       rotation: function (d, i) {
         let pos = project.track._headPosition(d, i);
         if (pos.posidx !== undefined) {

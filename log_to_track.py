@@ -6,12 +6,15 @@ import re
 import sys
 
 
-def logs_to_tracks(logdir, output, runs, realign=False, oldest=False, useTarget=False):  # noqa
+def logs_to_tracks(
+        logdir, output, runs, realign=False, oldest=False, useTarget=False,
+        showIndexer=False):  # noqa
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
 Setting,showArrows,false
 Robot,0,https://manthey.github.io/ftc-tracks/decodebot33dpi.png,8.25,8.75,8.25,8.75
+Part,0,https://manthey.github.io/ftc-tracks/indexer5inraddark.png,5,5,5,5
 Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
     tracks = {}
     lastpose = None
@@ -30,6 +33,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             basepose = tuple(list(lastpose))
         startpose = None
         t0 = None
+        indexerPos = None
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
             print(file)
             reader = csv.reader(fptr)
@@ -51,10 +55,12 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         y2 = x1 * math.sin(startpose[3]) + y1 * math.cos(startpose[3])
                         x, y, h = round(x2 + basepose[0], 2), round(y2 + basepose[1], 2), round(
                             h1 + basepose[2], 2)
-                    track.append((t - t0, x, y, h))
+                    track.append((t - t0, x, y, h, indexerPos))
                     lastpose = (x, y, h)
                     if abs(x) > 72 or abs(y) > 72:
                         lastpose = None
+                if len(line) == 5 and line[3] == 'Indexer Position':
+                    indexerPos = float(line[4])
         if len(track) < 2:
             continue
         tracks[number] = {'name': name, 'track': track, 'number': number}
@@ -67,13 +73,16 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             continue
         out.append(f'Path,{name}-{number}')
         last = 0
-        for idx, (t, x, y, h) in enumerate(track):
+        for idx, (t, x, y, h, ip) in enumerate(track):
             if (idx and idx != len(track) - 1 and
                     abs(x - track[last][1]) <= 0.02 and
                     abs(y - track[last][2]) <= 0.02 and
-                    abs(h - track[last][3]) <= 0.05):
+                    abs(h - track[last][3]) <= 0.05 and
+                    abs(ip - track[last][4]) <= 0.05):
                 continue
             out.append(f'P{idx},{x},{y},{h},,,{t - track[last][0]:.6f}'.rstrip('0'))
+            if showIndexer:
+                out[-1] += f',,0:0:1.75:{-ip:.2f}'
             last = idx
     if output:
         open(output, 'w').write('\n'.join(out) + '\n')
@@ -216,9 +225,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '--target', action='store_true', help='Use the target position, not the field position.')
     parser.add_argument(
+        '--indexer', action='store_true', help='Add indexer part to the track.')
+    parser.add_argument(
         '-s', '--step', choices=['mean', 'median', 'low', 'high', 'quartile1', 'quartile3'],
         help='Print a summary of how log different steps take.')
     opts = parser.parse_args()
     runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
-    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target)
+    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target, opts.indexer)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)
