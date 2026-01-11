@@ -43,8 +43,8 @@ def main():
         dest_path = os.path.join(args.dest, item.Name)
         if os.path.exists(dest_path):
             continue
-        print(item.Name, item.Path)
-        # dest.CopyHere(item, 4 | 16 | 512 | 1024)
+        print(item.Name)
+        dest.CopyHere(item, 4 | 16 | 512 | 1024)
 
     pythoncom.CoUninitialize()
 

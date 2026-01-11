@@ -64,7 +64,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         sys.stderr.write(f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
         if skip:
             continue
-        out.append(f'Path,{name}')
+        out.append(f'Path,{name}-{number}')
         last = 0
         for idx, (t, x, y, h) in enumerate(track):
             if (idx and idx != len(track) - 1 and
@@ -128,7 +128,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                 lastKey = key
                 nums = None
                 try:
-                    if not re.search(r'[a-zA-Z][^0-9+\-.]', line[4]):
+                    if not re.search(r'[a-zA-Z][0-9+\-.]', line[4]):
                         nums = [float(v) for v in re.sub(
                             r'[^0-9+\-.]+', ' ', line[4]).strip().split()]
                 except Exception:
@@ -166,7 +166,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
             name = tracks[number]['name']
             track = tracks[number]['track']
             keys = tracks[number]['keys']
-            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{name}.{csvpath.rsplit(".", 1)[1]}'
+            trackcsv = f'{csvpath.rsplit(".", 1)[0]}_{number}_{name}.{csvpath.rsplit(".", 1)[1]}'
             with open(trackcsv, mode='w', newline='') as fptr:
                 writer = csv.writer(fptr)
                 writer.writerow(list(keys.keys()))
