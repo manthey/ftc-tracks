@@ -14,10 +14,14 @@ import ctypes
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        'source',
-        help='Path on device, e.g. ""Control Hub v1.0\\Internal shared storage\\FIRST\\telemetry"'
+        '--source', '--src',
+        default='Control Hub v1.0\\Internal shared storage\\FIRST\\telemetry',
+        help='Path on device.  Default is "Control Hub v1.0\\Internal '
+        'shared storage\\FIRST\\telemetry"',
     )
-    parser.add_argument('dest', help='Local destination path')
+    parser.add_argument(
+        '--dest', default='C:\\temp\\telemetry',
+        help='Local destination path.  Default is "C:\\temp\\telemetry"')
     args = parser.parse_args()
 
     pythoncom.CoInitialize()
@@ -25,7 +29,7 @@ def main():
     shell = win32com.client.Dispatch('Shell.Application')
     folder = shell.Namespace(17)
 
-    for part in args.source.split('\\'):
+    for part in args.source.replace('\\', '/').split('/'):
         found = False
         for item in folder.Items():
             if item.Name == part:
@@ -33,6 +37,7 @@ def main():
                 found = True
                 break
         if not found:
+            print(f'Failed to find path component "{part}" in "{args.source}"')
             return
 
     os.makedirs(args.dest, exist_ok=True)
