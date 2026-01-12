@@ -9,7 +9,7 @@
         font-family: system-ui, sans-serif;
         margin: 0;
       }
-      #bar {
+      #topbar {
         padding: 8px;
         background: #f0f0f0;
         display: flex;
@@ -39,7 +39,7 @@
       #modal.open {
         display: flex;
       }
-      .pan {
+      .contents {
         background: #fff;
         padding: 20px;
         border-radius: 8px;
@@ -48,44 +48,44 @@
         overflow-y: auto;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
       }
-      .pan h3 {
+      .contents h3 {
         margin: 0 0 15px;
       }
-      .pan label {
+      .contents label {
         display: block;
         margin: 12px 0 4px;
         font-weight: bold;
       }
-      .pan select {
+      .contents select {
         width: 100%;
         padding: 6px;
       }
-      .cols {
+      .columns {
         display: flex;
         gap: 20px;
       }
-      .cols > div {
+      .columns > div {
         flex: 1;
       }
-      .chk {
+      .checklist {
         max-height: 180px;
         overflow-y: auto;
         border: 1px solid #ccc;
         padding: 8px;
         background: #fafafa;
       }
-      .chk label {
+      .checklist label {
         display: block;
         font-weight: normal;
         margin: 4px 0;
         cursor: pointer;
       }
-      .btns {
+      .buttons {
         margin-top: 16px;
         display: flex;
         gap: 8px;
       }
-      .btns button {
+      .buttons button {
         flex: 1;
         padding: 10px;
         cursor: pointer;
@@ -93,294 +93,315 @@
     </style>
   </head>
   <body>
-    <div id="bar">
+    <div id="topbar">
       <input type="file" id="file" accept=".csv" />
       <button id="cfg" disabled>Configure Plot</button>
     </div>
     <div id="plot"></div>
     <div id="modal">
-      <div class="pan">
+      <div class="contents">
         <h3>Plot Configuration</h3>
         <label>X Axis</label>
-        <select id="xSel"></select>
+        <select id="xAxis"></select>
         <label>Color By Category</label>
-        <select id="catSel">
+        <select id="categoryValue">
           <option value="">None</option>
         </select>
-        <div class="cols">
+        <div class="columns">
           <div>
             <label>Left Y Axis</label>
-            <div class="chk" id="lChk"></div>
+            <div class="checklist" id="leftYAxis"></div>
           </div>
           <div>
             <label>Right Y Axis</label>
-            <div class="chk" id="rChk"></div>
+            <div class="checklist" id="rightYAxis"></div>
           </div>
         </div>
-        <div class="btns"><button onclick="apply()">Apply</button></div>
+        <div class="buttons"><button onclick="apply()">Apply</button></div>
       </div>
     </div>
     <script>
-      let CSVData = [],
-        Columns = [],
-        numericalCols = [];
-      const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
-      const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
-      const PAL = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
+const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
+const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+
+let CSVData = [];
+let Columns = [];
+let NumericalCols = [];
 
 function convertCSV(src) {
-function parseLine(s) {
-    const r = []; let c = '', q = false;
+  function parseLine(s) {
+    const r = [];
+    let c = '',
+      q = false;
     for (let i = 0; i < s.length; i++) {
-        if (s[i] === '"') { if (q && s[i+1] === '"') { c += '"'; i++; } else q = !q; }
-        else if (s[i] === ',' && !q) { r.push(c); c = ''; }
-        else c += s[i];
+      if (s[i] === '"') {
+        if (q && s[i + 1] === '"') {
+          c += '"';
+          i++;
+        } else q = !q;
+      } else if (s[i] === ',' && !q) {
+        r.push(c);
+        c = '';
+      } else c += s[i];
     }
-    return r.push(c), r;
-}
+    return (r.push(c), r);
+  }
 
-function fmtRow(v) {
-    return v.map(x => /[,"\n]/.test(''+x) ? '"'+(''+x).replace(/"/g,'""')+'"' : ''+x).join(',');
-}
-    const track = [], keys = {};
-    let t0 = null, state = null;
-    for (const raw of src.split(/\r?\n/)) {
-        const line = parseLine(raw);
-        if (line.length < 5) continue;
-        const key = line[3];
-        if (key === 'loop time') {
-            state = state ? (track.push({...state}), {...state}) : {};
-            const t = parseFloat(line[0]);
-            t0 = t0 ?? t;
-            keys.time = true;
-            keys.count = true;
-            state.time = t - t0;
-            state.count = track.length;
-        }
-        if (!state) continue;
-        let nums = null;
-        if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
-            const c = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
-            if (c) nums = c.split(/\s+/).map(parseFloat);
-        }
-        if (!nums || nums.length <= 1) {
-            keys[key] = true;
-            state[key] = nums?.length ? nums[0] : line[4];
-        } else {
-            nums.forEach((n, i) => { const k = key + ' ' + (i + 1); keys[k] = true; state[k] = n; });
-        }
+  function fmtRow(v) {
+    return v.map((x) => (/[,"\n]/.test('' + x) ? '"' + ('' + x).replace(/"/g, '""') + '"' : '' + x)).join(',');
+  }
+  const track = [],
+    keys = {};
+  let t0 = null,
+    state = null;
+  for (const raw of src.split(/\r?\n/)) {
+    const line = parseLine(raw);
+    if (line.length < 5) continue;
+    const key = line[3];
+    if (key === 'loop time') {
+      state = state ? (track.push({ ...state }), { ...state }) : {};
+      const t = parseFloat(line[0]);
+      t0 = t0 ?? t;
+      keys.time = true;
+      keys.count = true;
+      state.time = t - t0;
+      state.count = track.length;
     }
-    if (state) track.push(state);
-    if (track.length < 2) return '';
-    const kl = Object.keys(keys);
-    return [kl, ...track.map(r => kl.map(k => r[k] ?? ''))].map(fmtRow).join('\n');
+    if (!state) continue;
+    let nums = null;
+    if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
+      const c = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
+      if (c) nums = c.split(/\s+/).map(parseFloat);
+    }
+    if (!nums || nums.length <= 1) {
+      keys[key] = true;
+      state[key] = nums?.length ? nums[0] : line[4];
+    } else {
+      nums.forEach((n, i) => {
+        const k = key + ' ' + (i + 1);
+        keys[k] = true;
+        state[k] = n;
+      });
+    }
+  }
+  if (state) track.push(state);
+  if (track.length < 2) return '';
+  const kl = Object.keys(keys);
+  return [kl, ...track.map((r) => kl.map((k) => r[k] ?? ''))].map(fmtRow).join('\n');
 }
 
+function parseCSV(t) {
+  const out = [],
+    lines = t.split(/\r?\n/);
+  for (const ln of lines) {
+    if (!ln.trim()) continue;
+    const cells = [];
+    let q = false,
+      c = '';
+    for (const ch of ln) {
+      if (ch === '"') q = !q;
+      else if (ch === ',' && !q) {
+        cells.push(c.trim());
+        c = '';
+      } else c += ch;
+    }
+    cells.push(c.trim());
+    out.push(cells);
+  }
+  return out;
+}
 
-      function parseCSV(t) {
-        const out = [],
-          lines = t.split(/\r?\n/);
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          const cells = [];
-          let q = false,
-            c = '';
-          for (const ch of ln) {
-            if (ch === '"') q = !q;
-            else if (ch === ',' && !q) {
-              cells.push(c.trim());
-              c = '';
-            } else c += ch;
-          }
-          cells.push(c.trim());
-          out.push(cells);
-        }
-        return out;
+function getEnum(col, maxUnique) {
+  maxUnique = maxUnique || 20;
+  const valueCounts = new Map();
+  let total = 0;
+
+  for (let i = 1; i < CSVData.length; i++) {
+    const v = CSVData[i]?.[col];
+    if (v !== '' && v != null) {
+      const key = String(v).trim();
+      valueCounts.set(key, (valueCounts.get(key) || 0) + 1);
+      total++;
+      if (valueCounts.size > maxUnique) return null;
+    }
+  }
+  if (valueCounts.size < 2 || valueCounts.size === total) return null;
+  const labels = [...valueCounts.keys()].sort((a, b) => {
+    const na = parseFloat(a),
+      nb = parseFloat(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+  const toNum = Object.fromEntries(labels.map((v, i) => [v, i]));
+  return { labels, toNum, counts: valueCounts };
+}
+
+function isNum(col) {
+  let n = 0;
+  for (let i = 1; i < Math.min(CSVData.length, 50); i++) {
+    const v = CSVData[i]?.[col];
+    if (v !== '' && v != null && !isNaN(+v)) n++;
+  }
+  return n > 0;
+}
+
+function init() {
+  const x = document.getElementById('xAxis');
+  const c = document.getElementById('categoryValue');
+  const lc = document.getElementById('leftYAxis');
+  const rc = document.getElementById('rightYAxis');
+  x.innerHTML = '';
+  c.innerHTML = '<option value="">None</option>';
+  lc.innerHTML = '';
+  rc.innerHTML = '';
+  Columns.forEach((h, i) => {
+    if (NumericalCols.includes(i)) {
+      x.add(new Option(h, i));
+      lc.innerHTML += `<label><input type="checkbox" name="L" value="${i}"> ${h}</label>`;
+      rc.innerHTML += `<label><input type="checkbox" name="R" value="${i}"> ${h}</label>`;
+    }
+    c.add(new Option(h, i));
+  });
+}
+
+function getChecked(n) {
+  return [...document.querySelectorAll(`input[name="${n}"]:checked`)].map((e) => +e.value);
+}
+
+function show() {
+  document.getElementById('modal').classList.add('open');
+}
+
+function hide() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+function apply() {
+  drawPlot();
+  hide();
+}
+
+function drawPlot() {
+  const xi = +document.getElementById('xAxis').value;
+  const ci = document.getElementById('categoryValue').value;
+  const L = getChecked('L'),
+    R = getChecked('R');
+  const rows = CSVData.slice(1);
+  const xVals = rows.map((r) => {
+    const v = r[xi];
+    return isNaN(+v) ? v : +v;
+  });
+  const cats = ci !== '' ? rows.map((r) => r[ci] || '') : null;
+  const uniqCats = cats ? [...new Set(cats)] : null;
+  const catCol = {};
+  if (uniqCats) {
+    uniqCats.forEach((c, i) => (catCol[c] = PALETTE[i % PALETTE.length]));
+  }
+  const traces = [];
+
+  function addSeries(yiList, yaxis, dashList, suffix) {
+    yiList.forEach((yi, si) => {
+      let yAll, text;
+      let hovertemplate = '%{y:.5g}';
+      if (isNum(yi)) {
+        yAll = rows.map((r) => parseFloat(r[yi]));
+      } else {
+        const eVals = getEnum(yi);
+        yAll = rows.map((r) => eVals.toNum[r[yi]]);
+        text = rows.map((r) => r[yi]);
+        hovertemplate = '%{text}';
       }
-      function getEnum(col, maxUnique) {
-        maxUnique = maxUnique || 20;
-        const valueCounts = new Map();
-        let total = 0;
-
-        for (let i = 1; i < CSVData.length; i++) {
-          const v = CSVData[i]?.[col];
-          if (v !== '' && v != null) {
-            const key = String(v).trim();
-            valueCounts.set(key, (valueCounts.get(key) || 0) + 1);
-            total++;
-            if (valueCounts.size > maxUnique) return null;
-          }
-        }
-        if (valueCounts.size < 2 || valueCounts.size === total) return null;
-        const labels = [...valueCounts.keys()].sort((a, b) => {
-          const na = parseFloat(a),
-            nb = parseFloat(b);
-          if (!isNaN(na) && !isNaN(nb)) return na - nb;
-          return a.localeCompare(b);
+      const dash = dashList[si % dashList.length];
+      const baseColor = PALETTE[(yaxis === 'y' ? si : L.length + si) % PALETTE.length];
+      if (!cats) {
+        traces.push({
+          x: xVals,
+          y: yAll,
+          name: Columns[yi] + suffix,
+          yaxis,
+          text: text,
+          mode: 'lines',
+          line: { dash, width: 2, color: baseColor },
+          hovertemplate: hovertemplate,
         });
-        const toNum = Object.fromEntries(labels.map((v, i) => [v, i]));
-        return { labels, toNum, counts: valueCounts };
-      }
-      function isNum(col) {
-        let n = 0;
-        for (let i = 1; i < Math.min(CSVData.length, 50); i++) {
-          const v = CSVData[i]?.[col];
-          if (v !== '' && v != null && !isNaN(+v)) n++;
-        }
-        return n > 0;
-      }
-      function init() {
-        const x = document.getElementById('xSel');
-        const c = document.getElementById('catSel');
-        const lc = document.getElementById('lChk');
-        const rc = document.getElementById('rChk');
-        x.innerHTML = '';
-        c.innerHTML = '<option value="">None</option>';
-        lc.innerHTML = '';
-        rc.innerHTML = '';
-        Columns.forEach((h, i) => {
-          if (numericalCols.includes(i)) {
-            x.add(new Option(h, i));
-            lc.innerHTML += `<label><input type="checkbox" name="L" value="${i}"> ${h}</label>`;
-            rc.innerHTML += `<label><input type="checkbox" name="R" value="${i}"> ${h}</label>`;
+      } else {
+        const segs = [];
+        let cur = { cat: cats[0], start: 0 };
+        for (let i = 1; i < cats.length; i++) {
+          if (cats[i] !== cur.cat) {
+            cur.end = i - 1;
+            segs.push(cur);
+            cur = { cat: cats[i], start: i };
           }
-          c.add(new Option(h, i));
-        });
-      }
-      function getChecked(n) {
-        return [...document.querySelectorAll(`input[name="${n}"]:checked`)].map((e) => +e.value);
-      }
-      function show() {
-        document.getElementById('modal').classList.add('open');
-      }
-      function hide() {
-        document.getElementById('modal').classList.remove('open');
-      }
-      function apply() {
-        drawPlot();
-        hide();
-      }
-
-      function drawPlot() {
-        const xi = +document.getElementById('xSel').value;
-        const ci = document.getElementById('catSel').value;
-        const L = getChecked('L'),
-          R = getChecked('R');
-        const rows = CSVData.slice(1);
-        const xVals = rows.map((r) => {
-          const v = r[xi];
-          return isNaN(+v) ? v : +v;
-        });
-        const cats = ci !== '' ? rows.map((r) => r[ci] || '') : null;
-        const uniqCats = cats ? [...new Set(cats)] : null;
-        const catCol = {};
-        if (uniqCats) {
-          uniqCats.forEach((c, i) => (catCol[c] = PAL[i % PAL.length]));
         }
-        const traces = [];
-
-        function addSeries(yiList, yaxis, dashList, suffix) {
-          yiList.forEach((yi, si) => {
-            let yAll, text;
-            let hovertemplate = '%{y:.5g}';
-            if (isNum(yi)) {
-              yAll = rows.map((r) => parseFloat(r[yi]));
-            } else {
-              const eVals = getEnum(yi);
-              yAll = rows.map((r) => eVals.toNum[r[yi]]);
-              text = rows.map((r) => r[yi]);
-              hovertemplate = '%{text}';
-            }
-            const dash = dashList[si % dashList.length];
-            const baseColor = PAL[(yaxis === 'y' ? si : L.length + si) % PAL.length];
-            if (!cats) {
-              traces.push({
-                x: xVals,
-                y: yAll,
-                name: Columns[yi] + suffix,
-                yaxis,
-                text: text,
-                mode: 'lines',
-                line: { dash, width: 2, color: baseColor },
-                hovertemplate: hovertemplate,
-              });
-            } else {
-              const segs = [];
-              let cur = { cat: cats[0], start: 0 };
-              for (let i = 1; i < cats.length; i++) {
-                if (cats[i] !== cur.cat) {
-                  cur.end = i - 1;
-                  segs.push(cur);
-                  cur = { cat: cats[i], start: i };
-                }
-              }
-              cur.end = cats.length - 1;
-              segs.push(cur);
-              segs.forEach((seg, segi) => {
-                const start = segi > 0 ? seg.start - 1 : seg.start;
-                const xf = xVals.slice(start, seg.end + 1);
-                const yf = yAll.slice(start, seg.end + 1);
-                const cf = cats.slice(start, seg.end + 1);
-                traces.push({
-                  x: xf,
-                  y: yf,
-                  name: Columns[yi] + suffix,
-                  showlegend: segi === 0,
-                  legendgroup: Columns[yi] + yaxis,
-                  yaxis,
-                  mode: 'lines',
-                  line: { dash, width: 2, color: catCol[seg.cat] },
-                  customdata: cf.map((c) => [c]),
-                  hovertemplate: hovertemplate + ' [%{customdata[0]}]',
-                });
-              });
-            }
+        cur.end = cats.length - 1;
+        segs.push(cur);
+        segs.forEach((seg, segi) => {
+          const start = segi > 0 ? seg.start - 1 : seg.start;
+          const xf = xVals.slice(start, seg.end + 1);
+          const yf = yAll.slice(start, seg.end + 1);
+          const cf = cats.slice(start, seg.end + 1);
+          traces.push({
+            x: xf,
+            y: yf,
+            name: Columns[yi] + suffix,
+            showlegend: segi === 0,
+            legendgroup: Columns[yi] + yaxis,
+            yaxis,
+            mode: 'lines',
+            line: { dash, width: 2, color: catCol[seg.cat] },
+            customdata: cf.map((c) => [c]),
+            hovertemplate: hovertemplate + ' [%{customdata[0]}]',
           });
-        }
-        addSeries(L, 'y', LDASH, '');
-        addSeries(R, 'y2', RDASH, ' (R)');
-
-        Plotly.react(
-          'plot',
-          traces,
-          {
-            margin: { l: 80, r: 80, t: 30, b: 50 },
-            hovermode: 'x unified',
-            xaxis: {
-              title: Columns[xi],
-              showspikes: true,
-              spikemode: 'across',
-              spikethickness: 1,
-              spikecolor: '#999',
-              spikedash: 'solid',
-            },
-            yaxis: { title: L.map((i) => Columns[i]).join(', ') },
-            yaxis2: { title: R.map((i) => Columns[i]).join(', '), overlaying: 'y', side: 'right', showgrid: false },
-            legend: { orientation: 'h', y: 1.05, x: 0.5, xanchor: 'center' },
-          },
-          { responsive: true },
-        );
+        });
       }
+    });
+  }
+  addSeries(L, 'y', LDASH, '');
+  addSeries(R, 'y2', RDASH, ' (R)');
 
-      document.getElementById('file').onchange = (e) => {
-        const f = e.target.files[0];
-        if (!f) return;
-        const r = new FileReader();
-        r.onload = (ev) => {
-          let data = ev.target.result;
-          if (data.startsWith('elapsed')) {
-            data = convertCSV(data);
-          }
-          CSVData = parseCSV(data);
-          Columns = CSVData[0] || [];
-          numericalCols = Columns.map((_, i) => i).filter((i) => isNum(i) || getEnum(i));
-          init();
-          document.getElementById('cfg').disabled = false;
-          show();
-        };
-        r.readAsText(f);
-      };
-      document.getElementById('cfg').onclick = show;
+  Plotly.react(
+    'plot',
+    traces,
+    {
+      margin: { l: 80, r: 80, t: 30, b: 50 },
+      hovermode: 'x unified',
+      xaxis: {
+        title: Columns[xi],
+        showspikes: true,
+        spikemode: 'across',
+        spikethickness: 1,
+        spikecolor: '#999',
+        spikedash: 'solid',
+      },
+      yaxis: { title: L.map((i) => Columns[i]).join(', ') },
+      yaxis2: { title: R.map((i) => Columns[i]).join(', '), overlaying: 'y', side: 'right', showgrid: false },
+      legend: { orientation: 'h', y: 1.05, x: 0.5, xanchor: 'center' },
+    },
+    { responsive: true },
+  );
+}
+
+document.getElementById('file').onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = (ev) => {
+    let data = ev.target.result;
+    if (data.startsWith('elapsed')) {
+      data = convertCSV(data);
+    }
+    CSVData = parseCSV(data);
+    Columns = CSVData[0] || [];
+    NumericalCols = Columns.map((_, i) => i).filter((i) => isNum(i) || getEnum(i));
+    init();
+    document.getElementById('cfg').disabled = false;
+    show();
+  };
+  r.readAsText(f);
+};
+document.getElementById('cfg').onclick = show;
     </script>
   </body>
 </html>
