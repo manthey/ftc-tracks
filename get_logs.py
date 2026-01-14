@@ -1,15 +1,32 @@
 import argparse
+import ctypes
 import os
 import shutil
+import subprocess
 import sys
 
 import pythoncom
 import win32com.client
-import win32com.shell
-import win32api
-import win32con
-import pywintypes
-import ctypes
+
+
+def mtp_scan():
+    adb = 'C:\\Program Files (x86)\\REV Robotics\\REV Hardware Client\\android-tools\\adb.exe'
+    path = '/Internal shared storage/FIRST/telemetry'
+    cmd = [adb, 'shell', 'am', 'broadcast', '-a',
+           'android.intent.action.MEDIA_SCANNER_SCAN_WITH_PATH', '--es',
+           'android.intent.extra.PATH', path]
+    try:
+        started = subprocess.run(
+            [adb, 'start-server'], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL).returncode == 0
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print('mtp rescan requested')
+        if started:
+            subprocess.run(
+                [adb, 'kill-server'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -23,6 +40,8 @@ def main():
         '--dest', default='C:\\temp\\telemetry',
         help='Local destination path.  Default is "C:\\temp\\telemetry"')
     args = parser.parse_args()
+
+    mtp_scan()
 
     pythoncom.CoInitialize()
 
