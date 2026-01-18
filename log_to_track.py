@@ -22,8 +22,10 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         if not file.endswith('csv'):
             continue
         try:
-            match = re.match(r'^[^_]+_((?P<number>\d{4})|\d{3})_(?P<name>[^_]+)(|_(?P<number2>\d+))\.', file)
-            number = int(match.group('number') or match.group('number2'))
+            match = re.match(r'^[^_]+_(?P<number>\d{4})_(?P<name>.+)\.csv', file)
+            if match is None:
+                match = re.match(r'^[^_]+_(\d{4})_(?P<name>[^_]+)_(?P<number>\d+)\.', file)
+            number = int(match.group('number'))
             name = match.group('name')
         except Exception:
             continue
