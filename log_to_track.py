@@ -33,9 +33,11 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             basepose = tuple(list(lastpose))
         startpose = None
         t0 = None
+        t = 0
         indexerPos = None
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
-            print(file)
+            sys.stdout.write(file)
+            sys.stdout.flush()
             reader = csv.reader(fptr)
             for line in reader:
                 if len(line) == 5 and line[3] == (
@@ -46,7 +48,8 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                     x, y, h = (float(v.strip('"')) for v in line[4].strip('"').split())
                     if startpose is None and basepose is not None:
                         startpose = (x, y, h, (basepose[2] - h) * math.pi / 180)
-                        print('Realigning')
+                        sys.stdout.write(' - Realigning')
+                        sys.stdout.flush()
                     if basepose is not None:
                         x1 = x - startpose[0]
                         y1 = y - startpose[1]
@@ -61,6 +64,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         lastpose = None
                 if len(line) == 5 and line[3] == 'Indexer Position':
                     indexerPos = float(line[4])
+        sys.stdout.write(f' - {t - t0 if t0 is not None else 0:4.2f}\n')
         if len(track) < 2:
             continue
         tracks[number] = {'name': name, 'track': track, 'number': number}
@@ -68,7 +72,8 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         name = tracks[number]['name']
         track = tracks[number]['track']
         skip = runs and number not in runs
-        sys.stderr.write(f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
+        if not skip:
+            sys.stderr.write(f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
         if skip:
             continue
         out.append(f'Path,{name}-{number}')
@@ -78,7 +83,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                     abs(x - track[last][1]) <= 0.02 and
                     abs(y - track[last][2]) <= 0.02 and
                     abs(h - track[last][3]) <= 0.05 and
-                    abs(ip - track[last][4]) <= 0.05):
+                    abs(ip - track[last][4]) <= 0.1):
                 continue
             out.append(f'P{idx},{x},{y},{h},,,{t - track[last][0]:.6f}'.rstrip('0'))
             if showIndexer:
@@ -221,7 +226,9 @@ if __name__ == '__main__':
         '-c', '--csv',
         help='Base output csv path -- this will have the run numb er added to '
         'it before the extension.')
-    parser.add_argument('-r', '--runs', help='Comma-separated list of run numbers to process.')
+    parser.add_argument(
+        '-r', '--runs',
+        help='Comma-separated list of run numbers to process.  Use start-end for inclusive ranges.')
     parser.add_argument(
         '--target', action='store_true', help='Use the target position, not the field position.')
     parser.add_argument(
@@ -230,6 +237,11 @@ if __name__ == '__main__':
         '-s', '--step', choices=['mean', 'median', 'low', 'high', 'quartile1', 'quartile3'],
         help='Print a summary of how log different steps take.')
     opts = parser.parse_args()
-    runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
+    runs = None
+    if opts.runs:
+        runs = {n for p in opts.runs.split(',') for n in (
+            range(int(p.split('-')[0]), int(p.split('-')[-1]) + 1)
+            if '-' in p else [int(p)])}
+    # runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
     logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target, opts.indexer)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)
