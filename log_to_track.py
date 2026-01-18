@@ -39,12 +39,16 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             sys.stdout.write(file)
             sys.stdout.flush()
             reader = csv.reader(fptr)
+            recpose = [None, None, None, 0]
             for line in reader:
-                if len(line) == 5 and line[3] == (
-                        'Field position' if not useTarget else 'Target position'):
+                if len(line) == 5 and line[3] == 'loop time':
+                    if recpose[0] is not None:
+                        track.append((t - t0, recpose[0], recpose[1], recpose[2], recpose[3]))
                     t = float(line[0])
                     if t0 is None:
                         t0 = t
+                if len(line) == 5 and line[3] == (
+                        'Field position' if not useTarget else 'Target position'):
                     x, y, h = (float(v.strip('"')) for v in line[4].strip('"').split())
                     if startpose is None and basepose is not None:
                         startpose = (x, y, h, (basepose[2] - h) * math.pi / 180)
@@ -58,12 +62,14 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         y2 = x1 * math.sin(startpose[3]) + y1 * math.cos(startpose[3])
                         x, y, h = round(x2 + basepose[0], 2), round(y2 + basepose[1], 2), round(
                             h1 + basepose[2], 2)
-                    track.append((t - t0, x, y, h, indexerPos))
+                    recpose[0:3] = [x, y, h]
                     lastpose = (x, y, h)
                     if abs(x) > 72 or abs(y) > 72:
                         lastpose = None
                 if len(line) == 5 and line[3] == 'Indexer Position':
-                    indexerPos = float(line[4])
+                    recpose[3] = float(line[4])
+            if recpose[0] is not None and len(track) and t - t0 != track[-1][0]:
+                track.append((t - t0, recpose[0], recpose[1], recpose[2], recpose[3]))
         sys.stdout.write(f' - {t - t0 if t0 is not None else 0:4.2f}\n')
         if len(track) < 2:
             continue
