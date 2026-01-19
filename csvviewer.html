@@ -285,13 +285,14 @@ function apply() {
 function drawPlot() {
   const xi = +document.getElementById('xAxis').value;
   const ci = document.getElementById('categoryValue').value;
-  const L = getChecked('L'),
-    R = getChecked('R');
+  const Left = getChecked('L'),
+    Right = getChecked('R');
   const rows = CSVData.slice(1);
   const xVals = rows.map((r) => {
     const v = r[xi];
     return isNaN(+v) ? v : +v;
   });
+  // are we show categoric colors; if we we duplicate junction points
   const cats = ci !== '' ? rows.map((r) => r[ci] || '') : null;
   const uniqCats = cats ? [...new Set(cats)] : null;
   const catCol = {};
@@ -302,10 +303,31 @@ function drawPlot() {
 
   function addSeries(yiList, yaxis, dashList, suffix) {
     yiList.forEach((yi, si) => {
-      let yAll, text;
+      let yAll, text, yAll2;
       let hovertemplate = '%{y:.5g}';
       if (isNum(yi)) {
         yAll = rows.map((r) => parseFloat(r[yi]));
+        if (yAll.every((r) => (r >= -10 && r <= 380)) && yAll.some((r, ridx) => (ridx && Math.abs(r - yAll[ridx - 1]) > 330))) {
+          yAll2 = yAll.slice();
+          let first = true;
+          yAll.forEach((r, ridx) => {
+            let transition;
+            if (ridx && Math.abs(r - (first ? yAll : yAll2)[ridx - 1]) > 330) {
+              first = !first;
+              transition = true;
+            }
+            (first ? yAll2 : yAll)[ridx] = null;
+            if (transition) {
+              if (yAll[ridx] === null) {
+                yAll[ridx] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx] - 360 : yAll2[ridx] + 360;
+                yAll2[ridx - 1] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx - 1] - 360 : yAll[ridx - 1] + 360;
+              } else {
+                yAll2[ridx] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx] - 360 : yAll[ridx] + 360;
+                yAll[ridx - 1] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx - 1] - 360 : yAll2[ridx - 1] + 360;
+              }
+            }
+          });
+        }
       } else {
         const eVals = getEnum(yi);
         yAll = rows.map((r) => eVals.toNum[r[yi]]);
@@ -313,53 +335,58 @@ function drawPlot() {
         hovertemplate = '%{text}';
       }
       const dash = dashList[si % dashList.length];
-      const baseColor = PALETTE[(yaxis === 'y' ? si : L.length + si) % PALETTE.length];
-      if (!cats) {
-        traces.push({
-          x: xVals,
-          y: yAll,
-          name: Columns[yi] + suffix,
-          yaxis,
-          text: text,
-          mode: 'lines',
-          line: { dash, width: 2, color: baseColor },
-          hovertemplate: hovertemplate,
-        });
-      } else {
-        const segs = [];
-        let cur = { cat: cats[0], start: 0 };
-        for (let i = 1; i < cats.length; i++) {
-          if (cats[i] !== cur.cat) {
-            cur.end = i - 1;
-            segs.push(cur);
-            cur = { cat: cats[i], start: i };
-          }
+      const baseColor = PALETTE[(yaxis === 'y' ? si : Left.length + si) % PALETTE.length];
+      [yAll, yAll2].forEach((yVals) => {
+        if (yVals === undefined) {
+          return;
         }
-        cur.end = cats.length - 1;
-        segs.push(cur);
-        segs.forEach((seg, segi) => {
-          const start = segi > 0 ? seg.start - 1 : seg.start;
-          const xf = xVals.slice(start, seg.end + 1);
-          const yf = yAll.slice(start, seg.end + 1);
-          const cf = cats.slice(start, seg.end + 1);
+        if (!cats) {        
           traces.push({
-            x: xf,
-            y: yf,
+            x: xVals,
+            y: yVals,
             name: Columns[yi] + suffix,
-            showlegend: segi === 0,
-            legendgroup: Columns[yi] + yaxis,
             yaxis,
+            text: text,
             mode: 'lines',
-            line: { dash, width: 2, color: catCol[seg.cat] },
-            customdata: cf.map((c) => [c]),
-            hovertemplate: hovertemplate + ' [%{customdata[0]}]',
+            line: { dash, width: 2, color: baseColor },
+            hovertemplate: hovertemplate,
+          });        
+        } else {
+          const segs = [];
+          let cur = { cat: cats[0], start: 0 };
+          for (let i = 1; i < cats.length; i++) {
+            if (cats[i] !== cur.cat) {
+              cur.end = i - 1;
+              segs.push(cur);
+              cur = { cat: cats[i], start: i };
+            }
+          }
+          cur.end = cats.length - 1;
+          segs.push(cur);
+          segs.forEach((seg, segidx) => {
+            const start = segidx > 0 ? seg.start - 1 : seg.start;
+            const xf = xVals.slice(start, seg.end + 1);
+            const yf = yVals.slice(start, seg.end + 1);
+            const cf = cats.slice(start, seg.end + 1);
+            traces.push({
+              x: xf,
+              y: yf,
+              name: Columns[yi] + suffix,
+              showlegend: segidx === 0,
+              legendgroup: Columns[yi] + yaxis,
+              yaxis,
+              mode: 'lines',
+              line: { dash, width: 2, color: catCol[seg.cat] },
+              customdata: cf.map((c) => [c]),
+              hovertemplate: hovertemplate + ' [%{customdata[0]}]',
+            });
           });
-        });
-      }
+        }
+      });    
     });
   }
-  addSeries(L, 'y', LDASH, '');
-  addSeries(R, 'y2', RDASH, ' (R)');
+  addSeries(Left, 'y', LDASH, '');
+  addSeries(Right, 'y2', RDASH, ' (R)');
 
   Plotly.react(
     'plot',
@@ -375,8 +402,8 @@ function drawPlot() {
         spikecolor: '#999',
         spikedash: 'solid',
       },
-      yaxis: { title: L.map((i) => Columns[i]).join(', ') },
-      yaxis2: { title: R.map((i) => Columns[i]).join(', '), overlaying: 'y', side: 'right', showgrid: false },
+      yaxis: { title: Left.map((i) => Columns[i]).join(', ') },
+      yaxis2: { title: Right.map((i) => Columns[i]).join(', '), overlaying: 'y', side: 'right', showgrid: false },
       legend: { orientation: 'h', y: 1.05, x: 0.5, xanchor: 'center' },
     },
     { responsive: true },
