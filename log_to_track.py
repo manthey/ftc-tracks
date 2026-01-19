@@ -6,9 +6,55 @@ import re
 import sys
 
 
+AprilTags = {
+    20: {'x': -58.373, 'y': -55.643, 'z': 29.5, 'h': 54.050},
+    24: {'x': -58.373, 'y': 55.643, 'z': 29.5, 'h': -54.050},
+    # 21: {'x': -73, 'y': 0, 'z': 24, 'h': 0},
+    # 22: {'x': -73, 'y': 0, 'z': 24, 'h': 0},
+    # 23: {'x': -73, 'y': 0, 'z': 24, 'h': 0},
+}
+
+def april_adjust(basepose, repose, april, tagid, rbe):
+    if basepose is None:
+        return
+    try:
+        rbe = [float(p) for p in rbe.split()[:3]]
+        id = int(tagid.split()[1])
+        tag = AprilTags[id]
+    except Exception:
+        return
+    # given RBE ad XYZH, camera is at
+    # d = R cos(E)
+    # camH = H - B + 180
+    # camX = X - d cos(H + B)
+    # camY = Y - d sin(H + B)
+    # camZ = Z - r sin(E)
+    # camera offset is cx, cy, cz, ch
+    # robot is at
+    # rH = camH - ch
+    # rx = camX - cx * sin(rH) - cy * cos(rH)
+    # ry = camY + cx * cos(rH) - cy * sin(rH)
+    dist = rbe[0] * math.cos(rbe[2] * math.pi / 180)
+    netH = repose[2] - april[2] + rbe[1] - 180
+    # we need something else for camera angle; RBE doesn't include enough
+    camX = tag['x'] + dist * math.cos(netH * math.pi / 180)
+    camY = tag['y'] + dist * math.sin(netH * math.pi / 180)
+    camZ = tag['z'] - rbe[0] * math.sin(rbe[2] * math.pi / 180)
+    # rh = camH - april[2]
+    rh = repose[2]
+    rx = camX - april[0] * math.sin(rh * math.pi / 180) - april[1] * math.cos(rh * math.pi / 180)
+    ry = camY + april[0] * math.cos(rh * math.pi / 180) - april[1] * math.sin(rh * math.pi / 180)
+    if abs(rx) > 72 or abs(ry) > 72:
+        return
+    if ((repose[0] - rx) ** 2 + (repose[1] - ry) ** 2) ** 0.5 > april[5]:
+        return
+    basepose[0] -= (repose[0] - rx) * april[4]
+    basepose[1] -= (repose[1] - ry) * april[4]
+
+
 def logs_to_tracks(
         logdir, output, runs, realign=False, oldest=False, useTarget=False,
-        showIndexer=False):  # noqa
+        showIndexer=False, april=None, suffix=None):  # noqa
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -32,7 +78,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         track = []
         basepose = None
         if lastpose is not None and 'Auto' not in name and realign:
-            basepose = tuple(list(lastpose))
+            basepose = list(lastpose)
         startpose = None
         t0 = None
         t = 0
@@ -42,6 +88,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             sys.stdout.flush()
             reader = csv.reader(fptr)
             recpose = [None, None, None, 0]
+            lastline = None
             for line in reader:
                 if len(line) == 5 and line[3] == 'loop time':
                     if recpose[0] is not None:
@@ -52,6 +99,8 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                 if len(line) == 5 and line[3] == (
                         'Field position' if not useTarget else 'Target position'):
                     x, y, h = (float(v.strip('"')) for v in line[4].strip('"').split())
+                    if april and basepose is None:
+                        basepose = [x, y, h]
                     if startpose is None and basepose is not None:
                         startpose = (x, y, h, (basepose[2] - h) * math.pi / 180)
                         sys.stdout.write(' - Realigning')
@@ -70,6 +119,9 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
                         lastpose = None
                 if len(line) == 5 and line[3] == 'Indexer Position':
                     recpose[3] = float(line[4])
+                if april and len(line) == 5 and line[3] == 'AprilTag' and lastline and lastline[3] == 'RBE':
+                    april_adjust(basepose, recpose, april, line[4], lastline[4])
+                lastline = line
             if recpose[0] is not None and len(track) and t - t0 != track[-1][0]:
                 track.append((t - t0, recpose[0], recpose[1], recpose[2], recpose[3]))
         sys.stdout.write(f' - {t - t0 if t0 is not None else 0:4.2f}\n')
@@ -84,7 +136,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
             sys.stderr.write(f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
         if skip:
             continue
-        out.append(f'Path,{name}-{number}')
+        out.append(f'Path,{name}-{number}{suffix or ""}')
         last = 0
         for idx, (t, x, y, h, ip) in enumerate(track):
             if (idx and idx != len(track) - 1 and
@@ -110,7 +162,9 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         if not file.endswith('csv'):
             continue
         try:
-            match = re.match(r'^[^_]+_((?P<number>\d{4})|\d{3})_(?P<name>[^_]+)(|_(?P<number2>\d+))\.', file)
+            match = re.match(r'^[^_]+_(?P<number>\d{4})_(?P<name>.+)\.csv', file)
+            if match is None:
+                match = re.match(r'^[^_]+_(\d{4})_(?P<name>[^_]+)_(?P<number>\d+)\.', file)
             number = int(match.group('number') or match.group('number2'))
             name = match.group('name')
         except Exception:
@@ -244,12 +298,20 @@ if __name__ == '__main__':
     parser.add_argument(
         '-s', '--step', choices=['mean', 'median', 'low', 'high', 'quartile1', 'quartile3'],
         help='Print a summary of how log different steps take.')
+    parser.add_argument(
+        '--april',
+        help='Simulate correction based on april tags.  Camera position on '
+        'the robot right-offset, forward-offset, bearing, elevation, xy '
+        'correction factor, bearing correction factor.')
+    parser.add_argument(
+        '--suffix', help='Add this to each path name')
     opts = parser.parse_args()
     runs = None
     if opts.runs:
         runs = {n for p in opts.runs.split(',') for n in (
             range(int(p.split('-')[0]), int(p.split('-')[-1]) + 1)
             if '-' in p else [int(p)])}
-    # runs = [int(r) for r in opts.runs.split(',')] if opts.runs is not None else None
-    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target, opts.indexer)
+    if opts.april:
+        opts.april = [float(p) for p in opts.april.split(',')]
+    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target, opts.indexer, opts.april, opts.suffix)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)
