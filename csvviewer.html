@@ -252,7 +252,12 @@ function isNum(col) {
 }
 
 function sparkline(yi) {
+  /* if we graph based on the x-axis, we can either (a) sort the data so that 
+   * we reveal coupling between the values, (b) draw mini-line plots which 
+   * would be previews, (c) plot versus time, or (d) plot versus count; the 
+   * last two are probably the most obvious of what is going on. */
   const w = 72, h = 18;
+  // change this to get time or count explicitly for options (c) or (d)
   const xi = +document.getElementById('xAxis').value;
   const rows = CSVData.slice(1);
   let pts = rows.map(r => ({x: parseFloat(r[xi]), y: parseFloat(r[yi])}))
@@ -260,17 +265,23 @@ function sparkline(yi) {
   if (pts.length < 2) {
     return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"></svg>`;
   }
+  // disable this line for option (b)
   pts.sort((a, b) => a.x - b.x);
   if (pts.length > w * 2) {
     const step = pts.length / w / 2;
     pts = Array.from({length: w * 2}, (_, i) => pts[Math.floor(i * step)]);
   }
-  const vals = pts.map(p => p.y);
-  const min = Math.min(...vals), max = Math.max(...vals), range = max - min || 1;
+  const valsx = pts.map(p => p.x);
+  const minx = Math.min(...valsx), maxx = Math.max(...valsx), rangex = maxx - minx || 1;
+  const valsy = pts.map(p => p.y);
+  const miny = Math.min(...valsy), maxy = Math.max(...valsy), rangey = maxy - miny || 1;
   let d = '';
   for (let i = 0; i < pts.length; i++) {
+    // for options all but (b)
     const x = (i / (pts.length - 1)) * w;
-    const y = h - 1 - ((pts[i].y - min) / range) * (h - 2);
+    // for option (b)
+    // const x = ((pts[i].x - minx) / rangex) * (w - 1);
+    const y = h - 1 - ((pts[i].y - miny) / rangey) * (h - 2);
     d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
   }
   return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#888" stroke-width="1"/></svg>`;
