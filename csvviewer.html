@@ -261,9 +261,9 @@ function sparkline(yi) {
     return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"></svg>`;
   }
   pts.sort((a, b) => a.x - b.x);
-  if (pts.length > 100) {
-    const step = pts.length / 100;
-    pts = Array.from({length: 100}, (_, i) => pts[Math.floor(i * step)]);
+  if (pts.length > w * 2) {
+    const step = pts.length / w / 2;
+    pts = Array.from({length: w * 2}, (_, i) => pts[Math.floor(i * step)]);
   }
   const vals = pts.map(p => p.y);
   const min = Math.min(...vals), max = Math.max(...vals), range = max - min || 1;
