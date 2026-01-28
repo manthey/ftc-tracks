@@ -273,7 +273,7 @@ function sparkline(yi) {
     const y = h - 1 - ((pts[i].y - min) / range) * (h - 2);
     d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
   }
-  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#aaa" stroke-width="1"/></svg>`;
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#888" stroke-width="1"/></svg>`;
 }
 
 function updateSparklines() {
