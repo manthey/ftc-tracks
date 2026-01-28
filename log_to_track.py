@@ -177,6 +177,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
             reader = csv.reader(fptr)
             lastT = 0
+            lastLoopT = None
             lastKey = None
             for line in reader:
                 if len(line) < 5:
@@ -188,6 +189,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                         state = state.copy()
                     else:
                         state = {}
+                        lastLoopT = None
                     t = float(line[0])
                     if t0 is None:
                         t0 = t
@@ -202,6 +204,12 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
                 if lastKey is not None and not skip:
                     keyTimes[key].append(float(line[0]) - lastT)
                 lastT = float(line[0])
+                if key == 'loop time' and not skip:
+                    if lastLoopT is not None:
+                        if 'loop' not in keyTimes:
+                            keyTimes['loop'] = []
+                        keyTimes['loop'].append(lastT - lastLoopT)
+                    lastLoopT = lastT
                 lastKey = key
                 nums = None
                 try:
@@ -269,7 +277,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         print(f'Summary: {stepSummary}')
         for k, v in sorted(keyTimes.items(), key=lambda x: -x[1]):
             print(f'{v:7.5f}s {k}')
-        print(f'{sum(v for v in keyTimes.values()):7.5f}s')
+        print(f'{sum(v for k, v in keyTimes.items() if k != "loop"):7.5f}s')
 
 
 if __name__ == '__main__':
