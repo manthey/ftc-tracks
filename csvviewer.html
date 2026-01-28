@@ -41,11 +41,12 @@
       }
       .contents {
         background: #fff;
-        padding: 20px;
+        padding: 15px;
         border-radius: 8px;
-        width: 520px;
-        max-height: 85vh;
-        overflow-y: auto;
+        width: min(700px, calc(100vw - 60px));
+        height: calc(100vh - 60px);
+        display: flex;
+        flex-direction: column;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
       }
       .contents h3 {
@@ -63,12 +64,16 @@
       .columns {
         display: flex;
         gap: 20px;
+        flex: 1;
+        min-height: 0;
       }
       .columns > div {
         flex: 1;
+        display: flex;
+        flex-direction: column;
       }
       .checklist {
-        max-height: 180px;
+        flex: 1;
         overflow-y: auto;
         border: 1px solid #ccc;
         padding: 8px;
@@ -77,7 +82,7 @@
       .checklist label {
         display: block;
         font-weight: normal;
-        margin: 4px 0;
+        margin: 0;
         cursor: pointer;
       }
       .buttons {
@@ -246,23 +251,67 @@ function isNum(col) {
   return n > 0;
 }
 
-function init() {
-  const x = document.getElementById('xAxis');
-  const c = document.getElementById('categoryValue');
+function sparkline(yi) {
+  /* if we graph based on the x-axis, we can either (a) sort the data so that 
+   * we reveal coupling between the values, (b) draw mini-line plots which 
+   * would be previews, (c) plot versus time, or (d) plot versus count; the 
+   * last two are probably the most obvious of what is going on. */
+  const w = 72, h = 18;
+  // change this to get time or count explicitly for options (c) or (d)
+  const xi = +document.getElementById('xAxis').value;
+  const rows = CSVData.slice(1);
+  let pts = rows.map(r => ({x: parseFloat(r[xi]), y: parseFloat(r[yi])}))
+               .filter(p => !isNaN(p.x) && !isNaN(p.y));
+  if (pts.length < 2) {
+    return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"></svg>`;
+  }
+  // disable this line for option (b)
+  pts.sort((a, b) => a.x - b.x);
+  if (pts.length > w * 2) {
+    const step = pts.length / w / 2;
+    pts = Array.from({length: w * 2}, (_, i) => pts[Math.floor(i * step)]);
+  }
+  const valsx = pts.map(p => p.x);
+  const minx = Math.min(...valsx), maxx = Math.max(...valsx), rangex = maxx - minx || 1;
+  const valsy = pts.map(p => p.y);
+  const miny = Math.min(...valsy), maxy = Math.max(...valsy), rangey = maxy - miny || 1;
+  let d = '';
+  for (let i = 0; i < pts.length; i++) {
+    // for options all but (b)
+    const x = (i / (pts.length - 1)) * w;
+    // for option (b)
+    // const x = ((pts[i].x - minx) / rangex) * (w - 1);
+    const y = h - 1 - ((pts[i].y - miny) / rangey) * (h - 2);
+    d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+  }
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#888" stroke-width="1"/></svg>`;
+}
+
+function updateSparklines() {
   const lc = document.getElementById('leftYAxis');
   const rc = document.getElementById('rightYAxis');
-  x.innerHTML = '';
-  c.innerHTML = '<option value="">None</option>';
+  const lSel = getChecked('L'), rSel = getChecked('R');
   lc.innerHTML = '';
   rc.innerHTML = '';
   Columns.forEach((h, i) => {
     if (NumericalCols.includes(i)) {
-      x.add(new Option(h, i));
-      lc.innerHTML += `<label><input type="checkbox" name="L" value="${i}"> ${h}</label>`;
-      rc.innerHTML += `<label><input type="checkbox" name="R" value="${i}"> ${h}</label>`;
+      const s = sparkline(i);
+      lc.innerHTML += `<label>${s}<input type="checkbox" name="L" value="${i}"${lSel.includes(i) ? ' checked' : ''}> ${h}</label>`;
+      rc.innerHTML += `<label>${s}<input type="checkbox" name="R" value="${i}"${rSel.includes(i) ? ' checked' : ''}> ${h}</label>`;
     }
+  });
+}
+
+function init() {
+  const x = document.getElementById('xAxis');
+  const c = document.getElementById('categoryValue');
+  x.innerHTML = '';
+  c.innerHTML = '<option value="">None</option>';
+  Columns.forEach((h, i) => {
+    if (NumericalCols.includes(i)) x.add(new Option(h, i));
     c.add(new Option(h, i));
   });
+  updateSparklines();
 }
 
 function getChecked(n) {
@@ -429,6 +478,7 @@ document.getElementById('file').onchange = (e) => {
   r.readAsText(f);
 };
 document.getElementById('cfg').onclick = show;
+document.getElementById('xAxis').onchange = updateSparklines;
     </script>
   </body>
 </html>
