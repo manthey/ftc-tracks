@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>RBV Log Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack.min.css" rel="stylesheet">
+  <link href="logviewer.css" rel="stylesheet">
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.18.3/geo.min.js"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack-all.js"></script>
+  <script type="text/javascript" src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+  <script type="text/javascript" src="logviewer.js"></script>
+</head>
+
+<body>
+  <div class="grid-stack"></div>
+  <div class="alwayshidden" id="controlpanel">
+    <div class="control-group">
+      <input type="file" id="file" multiple />
+      <div class="button-group">
+        <button id="addtelemetry" class="addgrid hidden" data-id="telemetry">Telemetry</button>
+        <button id="addfield" class="addgrid hidden" data-id="field">Field</button>
+        <button id="addgraph" class="addgrid hidden" data-id="graph">Graph</button>
+        <button id="addvideo" class="addgrid hidden" data-id="video">Video</button>
+        <button id="editgrid">Edit</button>
+        <button id="lockgrid" class="hidden">Lock</button>
+      </div>
+    </div>
+    <div class="logs-group">
+      <select id="logs" multiple="multiple"></select>
+    </div>
+    <div class="options-group">
+      <!--
+      <label><input type="checkbox" id="realign" title="Realign teleop from preceding auto"> Realign</label>
+    -->
+      <div class="button-group">
+        <button id="remove" title="Remove selected logs">Remove</button>
+      </div>
+    </div>
+  </div>
+  <div class="alwayshidden" id="playbackpanel">
+    <div class="time-group">
+      <input id="time" type="range" min="0" value="0" step="0.001" />
+      <input id="time-value" type="number" min="0" value="0" step="0.001" />
+    </div>
+    <div class="options-group">
+      <div class="play-controls">
+        <button id="start-anim" class="svg-button" title="Start">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M0 3L4 3L4 17L0 17ZM4 10L13 3L13 8L20 3L20 17L13 12L13 17Z" fill="currentColor"
+              stroke="transparent" />
+          </svg>
+        </button>
+        <button id="back-anim" class="svg-button" title="Step Back">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M5 10L19 2L19 18ZM5 2L1 2L1 18L5 18Z" fill="currentColor" stroke="transparent" />
+          </svg>
+        </button>
+        <button id="pause-anim" class="svg-button" title="Pause">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M5 2L9 2L9 18L5 18ZM11 2L15 2L15 18L11 18Z" fill="currentColor" stroke="transparent" />
+          </svg>
+        </button>
+        <button id="step-anim" class="svg-button" title="Step Forward">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M15 10L1 2L1 18ZM15 2L19 2L19 18L15 18Z" fill="currentColor" stroke="transparent" />
+          </svg>
+        </button>
+        <button id="play-anim" class="svg-button" title="Play current track">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M17 10L3 2L3 18Z" fill="currentColor" stroke="transparent" />
+          </svg>
+        </button>
+        <button id="play-all-anim" class="svg-button" title="Play all tracks">
+          <svg class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+            <path d="M20 10L9 3L9 8L0 3L0 17L9 12L9 17Z" fill="currentColor" stroke="transparent" />
+          </svg>
+        </button>
+      </div>
+      <div class="speed-group">
+        <input type="range" id="speed" min="-6" max="3" step="1" value="0" />
+        <span id="speed-value">1x</span>
+      </div>
+    </div>
+  </div>
+  <div class="alwayshidden" id="telemetrypanel">
+    <table id="telemetry-table" />
+  </div>
+  <div class="alwayshidden" id="fieldpanel">
+    <div id="map" class="geojs-map highlight-focus" tabindex="0"
+      style="touch-action: none; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: rgba(0, 0, 0, 0)">
+    </div>
+    <div id="info"></div>
+  </div>
+</body>
+
+</html>

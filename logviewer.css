@@ -1,0 +1,188 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none;
+}
+
+.alwayshidden {
+  display: none !important;
+}
+
+.grid-stack {
+  height: 100vh;
+}
+
+.grid-stack-item-content {
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.close-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn.hidden {
+  display: none;
+}
+
+.close-btn:hover {
+  background: rgba(128, 128, 128, 0.25);
+}
+
+.control-group,
+.options-group {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+control-group>input {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+#controlpanel {
+  width: 100%;
+  height: calc(100% - 10px);
+  margin: 5px;
+  display: flex;
+  flex-direction: column;
+}
+
+#logs {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+#logs option {
+  min-width: max-content;
+}
+
+.logs-group {
+  flex-grow: 1;
+  min-height: 0;
+  flex-wrap: nowrap;
+}
+
+.button-group {
+  margin-left: auto;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.svg-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 2px;
+  margin: 2px 4px 1px 0px;
+}
+
+.play-controls {
+  flex: 1;
+}
+
+#playbackpanel {
+  width: calc(100% - 10px);
+}
+
+#playbackpanel .time-group {
+  display: flex;
+  flex-direction: row;
+}
+
+#playbackpanel #time {
+  flex: 1;
+}
+
+#playbackpanel #time-value {
+  width: 11ch;
+  text-align: right;
+  margin-left: 5px;
+}
+
+#speed {
+  width: 6em;
+}
+
+#speed-value {
+  width: 5ch;
+  display: inline-block;
+}
+
+#telemetrypanel {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+#telemtry-table {
+  width: auto;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+#telemetry-table td:not(:last-child) {
+  padding-right: 5px;
+}
+
+#telemetry-table td {
+  white-space: nowrap;
+}
+
+#fieldpanel #map {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: 0;
+}
+
+#fieldpanel #info {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 2px;
+}
