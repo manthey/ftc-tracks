@@ -8,15 +8,19 @@ const DEFAULT_LAYOUT = [
   { x: 0, y: 0, w: 4, h: 2, id: "control" },
   { x: 0, y: 2, w: 4, h: 8, id: "telemetry" },
   { x: 4, y: 0, w: 8, h: 4, id: "graph" },
-  { x: 4, y: 4, w: 6, h: 8, id: "field" },
+  { x: 4, y: 4, w: 5, h: 8, id: "field" },
   { x: 0, y: 10, w: 4, h: 2, id: "playback" },
-  { x: 10, y: 4, w: 2, h: 8, id: "video" },
+  { x: 9, y: 4, w: 3, h: 8, id: "video" },
 ];
 
 class LogRecord {
   constructor(rawdata, filename) {
     this.filename = filename;
-    this.displayname = (filename.includes('_') ? filename.split('_').slice(1).join('_') : filename).split('.')[0].replace(/_/g, ' ');
+    this.displayname = (
+      filename.includes("_") ? filename.split("_").slice(1).join("_") : filename
+    )
+      .split(".")[0]
+      .replace(/_/g, " ");
     this.init = {};
     this.data = [];
     this.telemetry = [];
@@ -339,11 +343,10 @@ function loadFiles(evt) {
     */
     };
     reader.readAsText(file);
-  };
+  }
 }
 
 document.addEventListener("DOMContentLoaded", initGrid);
-
 
 /*
 function orderedUnion(dicts) {
