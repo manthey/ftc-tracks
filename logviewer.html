@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>RBV Log Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack.min.css" rel="stylesheet">
+  <link href="logviewer.css" rel="stylesheet">
+  <script src="https://code.jquery.com/jquery-4.0.0.min.js"
+    integrity="sha256-OaVG6prZf4v69dPg6PhVattBXkcOWQB62pdZ3ORyrao=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack-all.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+  <script src="logviewer.js"></script>
+</head>
+
+<body>
+  <div class="grid-stack"></div>
+  <div class="hidden" id="controlpanel">
+    <div class="control-group">
+      <input type="file" id="file" multiple />
+      <div class="button-group">
+        <button id="addtelemetry" class="addgrid hidden" data-id="telemetry">Telemetry</button>
+        <button id="addfield" class="addgrid hidden" data-id="field">Field</button>
+        <button id="addgraph" class="addgrid hidden" data-id="graph">Graph</button>
+        <button id="addvideo" class="addgrid hidden" data-id="video">Video</button>
+        <button id="editgrid">Edit</button>
+        <button id="lockgrid" class="hidden">Lock</button>
+      </div>
+    </div>
+    <div class="logs-group">
+      <select id="logs" multiple="multiple"></select>
+    </div>
+    <div class="options-group">
+      <label><input type="checkbox" id="realign" title="Realign teleop from preceding auto"> Realign</label>
+      <div class="button-group">
+        <button id="remove" title="Remove selected logs">Remove</button>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
