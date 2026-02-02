@@ -11,7 +11,7 @@ body {
   overflow: hidden;
 }
 
-.hidden {
+.hidden, .alwayshidden {
   display: none;
 }
 

@@ -3,6 +3,7 @@ const GRID_COLS = 12;
 
 let Grid;
 let GridEditMode = false;
+let Logs = {};
 
 const DEFAULT_LAYOUT = [
   { x: 0, y: 0, w: 4, h: 2, id: "control" },
@@ -47,6 +48,7 @@ class LogRecord {
         keys.count = true;
         telemetry = {};
         record.time = t - t0;
+        this.duration = record.time;
         record.count = this.data.length;
       }
       if (t0 === undefined) {
@@ -322,6 +324,25 @@ function initGrid() {
   document.getElementById("file").onchange = loadFiles;
 }
 
+function updateLogs() {
+  console.log(Logs);
+  const sel = document.getElementById("logs");
+  const items = Object.values(Logs).sort((a, b) =>
+    a.displayname.localeCompare(b.displayname),
+  );
+  sel.innerHTML = items
+    .map(
+      (i) =>
+        `<option value="${i.key}"${i.selected ? " selected" : ""}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`,
+    )
+    .join("");
+  if (items.length && !items.some((i) => i.selected)) {
+    items[0].selected = true;
+    sel.options[0].selected = true;
+  }
+  // DWM::
+}
+
 function loadFiles(evt) {
   for (idx = 0; idx < evt.target.files.length; idx += 1) {
     const file = evt.target.files[idx];
@@ -334,13 +355,11 @@ function loadFiles(evt) {
       if (!log.data) {
         return;
       }
-      console.log(log);
-      /*
-    // add to drop down, alphabetize, update displays
-    init();
-    document.getElementById("cfg").disabled = false;
-    show();
-    */
+      if (Logs[log.filename] !== undefined) {
+        log.selected = Logs[log.filename].selected;
+      }
+      Logs[log.filename] = log;
+      updateLogs();
     };
     reader.readAsText(file);
   }
