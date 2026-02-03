@@ -211,7 +211,6 @@ function addPanel(id) {
   const baseId = id;
   let num = 1;
   while (Grid.getGridItems().some((el) => el.gridstackNode.id === id) && num < 10) {
-    console.log(num);
     num += 1;
     id = `${baseId}-${num}`;
   }
@@ -276,6 +275,17 @@ function initGrid() {
   document.getElementById('file').onchange = loadFiles;
   document.getElementById('logs').addEventListener('input', updateLogs);
   document.getElementById('remove').onclick = removeLogs;
+  document.getElementById('time').addEventListener('input', () => {
+    $('#time-value').val($('#time').val());
+  });
+  document.getElementById('time-value').addEventListener('input', () => {
+    $('#time').val($('#time-value').val());
+  });
+  document.getElementById('speed').addEventListener('input', () => {
+    const speedValue = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.1, 0: 1, 1: 2, 2: 5, 3: 10 };
+    console.log('here', $('#speed').val(), speedValue[$('#speed').val()]);
+    $('#speed-value').text(`${speedValue[$('#speed').val()]}x`);
+  });
 }
 
 function removeLogs() {
@@ -300,6 +310,11 @@ function updateLogs() {
   if (items.length && !items.some((i) => i.selected)) {
     items[0].selected = true;
     sel.options[0].selected = true;
+  }
+  let maxDuration = Object.values(Logs).reduce((duration, log) => Math.max(duration, log.duration), 0);
+  $('#time').attr('max', maxDuration);
+  if (isFinite(parseFloat($('#time').val())) && parseFloat($('#time').val()) > maxDuration) {
+    $('#time').val(maxDuration);
   }
   // DWM::
 }
