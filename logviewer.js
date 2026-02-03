@@ -1,4 +1,4 @@
-const STORAGE_KEY = "gs-dashboard";
+const STORAGE_KEY = 'gs-dashboard';
 const GRID_COLS = 12;
 
 let Grid;
@@ -6,22 +6,17 @@ let GridEditMode = false;
 let Logs = {};
 
 const DEFAULT_LAYOUT = [
-  { x: 0, y: 0, w: 4, h: 2, id: "control" },
-  { x: 0, y: 2, w: 4, h: 8, id: "telemetry" },
-  { x: 4, y: 0, w: 8, h: 4, id: "graph" },
-  { x: 4, y: 4, w: 5, h: 8, id: "field" },
-  { x: 0, y: 10, w: 4, h: 2, id: "playback" },
-  { x: 9, y: 4, w: 3, h: 8, id: "video" },
+  { x: 0, y: 0, w: 4, h: 2, id: 'control' },
+  { x: 0, y: 2, w: 4, h: 9, id: 'telemetry' },
+  { x: 0, y: 11, w: 4, h: 1, id: 'playback' },
+  { x: 4, y: 0, w: 8, h: 4, id: 'graph' },
+  { x: 4, y: 4, w: 8, h: 8, id: 'field' },
 ];
 
 class LogRecord {
   constructor(rawdata, filename) {
     this.filename = filename;
-    this.displayname = (
-      filename.includes("_") ? filename.split("_").slice(1).join("_") : filename
-    )
-      .split(".")[0]
-      .replace(/_/g, " ");
+    this.displayname = (filename.includes('_') ? filename.split('_').slice(1).join('_') : filename).split('.')[0].replace(/_/g, ' ');
     this.init = {};
     this.data = [];
     this.telemetry = [];
@@ -37,7 +32,7 @@ class LogRecord {
         continue;
       }
       const key = line[3];
-      if (key === "loop time") {
+      if (key === 'loop time') {
         if (telemetry) {
           this.telemetry.push(telemetry);
         }
@@ -61,7 +56,7 @@ class LogRecord {
       telemetry[key] = line[4];
       let nums = null;
       if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
-        const match = line[4].replace(/[^0-9+\-.]+/g, " ").trim();
+        const match = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
         if (match) {
           nums = match.split(/\s+/).map(parseFloat);
         }
@@ -90,7 +85,7 @@ class LogRecord {
 
   parseLine(line) {
     const fields = [];
-    let currentField = "";
+    let currentField = '';
     let insideQuotes = false;
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
@@ -102,9 +97,9 @@ class LogRecord {
         } else {
           insideQuotes = !insideQuotes;
         }
-      } else if (char === "," && !insideQuotes) {
+      } else if (char === ',' && !insideQuotes) {
         fields.push(currentField);
-        currentField = "";
+        currentField = '';
       } else {
         currentField += char;
       }
@@ -129,7 +124,7 @@ function loadState() {
   try {
     const d = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (d && d.items && d.items.length) {
-      if (!d.items.find((i) => i.id === "control")) {
+      if (!d.items.find((i) => i.id === 'control')) {
         d.items.unshift(DEFALT_LAYOUT[0]);
       }
       return d;
@@ -139,10 +134,10 @@ function loadState() {
 }
 
 function buildContent(id) {
-  const elem = document.getElementById(id.split("-")[0] + "panel");
+  const elem = document.getElementById(id.split('-')[0] + 'panel');
   let html;
   if (elem) {
-    html = $(elem.outerHTML).removeClass("hidden")[0].outerHTML;
+    html = $(elem.outerHTML).removeClass('alwayshidden')[0].outerHTML;
   } else {
     html = `<button class="close-btn hidden" data-id="${id}">X</button><span class="panel-label">${id}</span>`;
   }
@@ -161,62 +156,24 @@ function fitGrid(allowInEditMode) {
   });
   tiles.sort((a, b) => a.y - b.y);
   tiles.forEach((tile) => {
-    tile.y = tiles.reduce(
-      (maxY, other) =>
-        other !== tile &&
-        tile.x < other.x + other.w &&
-        tile.x + tile.w > other.x &&
-        other.y + other.h <= tile.y
-          ? Math.max(maxY, other.y + other.h)
-          : maxY,
-      0,
-    );
+    tile.y = tiles.reduce((maxY, other) => (other !== tile && tile.x < other.x + other.w && tile.x + tile.w > other.x && other.y + other.h <= tile.y ? Math.max(maxY, other.y + other.h) : maxY), 0);
   });
   tiles.forEach((tile) => {
-    tile.w = tiles.reduce(
-      (maxWidth, other) =>
-        other !== tile &&
-        tile.y < other.y + other.h &&
-        tile.y + tile.h > other.y &&
-        other.x >= tile.x + tile.w
-          ? Math.min(maxWidth, other.x - tile.x)
-          : maxWidth,
-      GRID_COLS - tile.x,
-    );
+    tile.w = tiles.reduce((maxWidth, other) => (other !== tile && tile.y < other.y + other.h && tile.y + tile.h > other.y && other.x >= tile.x + tile.w ? Math.min(maxWidth, other.x - tile.x) : maxWidth), GRID_COLS - tile.x);
   });
   tiles.forEach((tile) => {
-    let minX = tiles.reduce(
-      (minX, other) =>
-        other !== tile &&
-        tile.y < other.y + other.h &&
-        tile.y + tile.h > other.y &&
-        other.x + other.w <= tile.x
-          ? Math.max(minX, other.x + other.w)
-          : minX,
-      0,
-    );
+    let minX = tiles.reduce((minX, other) => (other !== tile && tile.y < other.y + other.h && tile.y + tile.h > other.y && other.x + other.w <= tile.x ? Math.max(minX, other.x + other.w) : minX), 0);
     tile.w += tile.x - minX;
     tile.x = minX;
   });
   const maxY = Math.max(Math.max(...tiles.map((tile) => tile.y + tile.h)), 6);
   tiles.forEach((tile) => {
-    tile.h = tiles.reduce(
-      (maxHeight, other) =>
-        other !== tile &&
-        tile.x < other.x + other.w &&
-        tile.x + tile.w > other.x &&
-        other.y >= tile.y + tile.h
-          ? Math.min(maxHeight, other.y - tile.y)
-          : maxHeight,
-      maxY - tile.y,
-    );
+    tile.h = tiles.reduce((maxHeight, other) => (other !== tile && tile.x < other.x + other.w && tile.x + tile.w > other.x && other.y >= tile.y + tile.h ? Math.min(maxHeight, other.y - tile.y) : maxHeight), maxY - tile.y);
   });
   const cellH = Math.floor(window.innerHeight / maxY);
   Grid.batchUpdate();
   Grid.cellHeight(cellH);
-  tiles.forEach((tile) =>
-    Grid.update(tile.el, { x: tile.x, y: tile.y, w: tile.w, h: tile.h }),
-  );
+  tiles.forEach((tile) => Grid.update(tile.el, { x: tile.x, y: tile.y, w: tile.w, h: tile.h }));
   Grid.batchUpdate(false);
 }
 
@@ -224,11 +181,11 @@ function toggleEdit(editMode) {
   GridEditMode = editMode !== undefined ? editMode : !GridEditMode;
   Grid.enableMove(GridEditMode);
   Grid.enableResize(GridEditMode);
-  $("#editgrid").toggleClass("hidden", GridEditMode);
-  $("#lockgrid").toggleClass("hidden", !GridEditMode);
+  $('#editgrid').toggleClass('hidden', GridEditMode);
+  $('#lockgrid').toggleClass('hidden', !GridEditMode);
   showAddButtons();
   Grid.getGridItems().forEach((el) => {
-    $(".close-btn", el).toggleClass("hidden", !GridEditMode);
+    $('.close-btn', el).toggleClass('hidden', !GridEditMode);
   });
   fitGrid();
   saveState();
@@ -236,16 +193,16 @@ function toggleEdit(editMode) {
 
 function showAddButtons() {
   if (!GridEditMode) {
-    $(".addgrid").addClass("hidden");
+    $('.addgrid').addClass('hidden');
   } else {
-    $("#addgraph.addgrid, #addvideo.addgrid").removeClass("hidden");
-    $("#addfield.addgrid").toggleClass(
-      "hidden",
-      Grid.getGridItems().some((el) => el.gridstackNode.id === "field"),
+    $('#addgraph.addgrid, #addvideo.addgrid').removeClass('hidden');
+    $('#addfield.addgrid').toggleClass(
+      'hidden',
+      Grid.getGridItems().some((el) => el.gridstackNode.id === 'field'),
     );
-    $("#addtelemetry.addgrid").toggleClass(
-      "hidden",
-      Grid.getGridItems().some((el) => el.gridstackNode.id === "telemetry"),
+    $('#addtelemetry.addgrid').toggleClass(
+      'hidden',
+      Grid.getGridItems().some((el) => el.gridstackNode.id === 'telemetry'),
     );
   }
 }
@@ -253,19 +210,16 @@ function showAddButtons() {
 function addPanel(id) {
   const baseId = id;
   let num = 1;
-  while (
-    Grid.getGridItems().some((el) => el.gridstackNode.id === id) &&
-    num < 10
-  ) {
+  while (Grid.getGridItems().some((el) => el.gridstackNode.id === id) && num < 10) {
     console.log(num);
     num += 1;
     id = `${baseId}-${num}`;
   }
   const el = Grid.addWidget({ w: GRID_COLS, h: 2, id: id, autoPosition: true });
-  el.querySelector(".grid-stack-item-content").innerHTML = buildContent(id);
+  el.querySelector('.grid-stack-item-content').innerHTML = buildContent(id);
   fitGrid(true);
   showAddButtons();
-  $(".close-btn", el).toggleClass("hidden", !GridEditMode);
+  $('.close-btn', el).toggleClass('hidden', !GridEditMode);
   saveState();
 }
 
@@ -298,22 +252,20 @@ function initGrid() {
       h: item.h,
       id: item.id,
     });
-    el.querySelector(".grid-stack-item-content").innerHTML = buildContent(
-      item.id,
-    );
+    el.querySelector('.grid-stack-item-content').innerHTML = buildContent(item.id);
   });
-  Grid.on("change", saveState);
-  document.body.addEventListener("click", (e) => {
-    if (e.target.id === "editgrid" || e.target.id === "lockgrid") {
-      toggleEdit(e.target.id === "editgrid");
-    } else if (e.target.classList.contains("close-btn")) {
+  Grid.on('change', saveState);
+  document.body.addEventListener('click', (e) => {
+    if (e.target.id === 'editgrid' || e.target.id === 'lockgrid') {
+      toggleEdit(e.target.id === 'editgrid');
+    } else if (e.target.classList.contains('close-btn')) {
       removePanel(e.target.dataset.id);
-    } else if (e.target.classList.contains("addgrid")) {
+    } else if (e.target.classList.contains('addgrid')) {
       addPanel(e.target.dataset.id);
     }
   });
   let resizeTimer;
-  window.addEventListener("resize", () => {
+  window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       fitGrid();
@@ -321,21 +273,30 @@ function initGrid() {
   });
   fitGrid();
 
-  document.getElementById("file").onchange = loadFiles;
+  document.getElementById('file').onchange = loadFiles;
+  document.getElementById('logs').addEventListener('input', updateLogs);
+  document.getElementById('remove').onclick = removeLogs;
+}
+
+function removeLogs() {
+  Object.keys(Logs).forEach((key) => {
+    if (Logs[key].selected) {
+      delete Logs[key];
+    }
+  });
+  updateLogs();
 }
 
 function updateLogs() {
-  console.log(Logs);
-  const sel = document.getElementById("logs");
-  const items = Object.values(Logs).sort((a, b) =>
-    a.displayname.localeCompare(b.displayname),
-  );
-  sel.innerHTML = items
-    .map(
-      (i) =>
-        `<option value="${i.key}"${i.selected ? " selected" : ""}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`,
-    )
-    .join("");
+  const sel = document.getElementById('logs');
+  $('option', sel).each(function () {
+    const key = $(this).attr('value');
+    if (Logs[key]) {
+      Logs[key].selected = $(this).is(':selected');
+    }
+  });
+  const items = Object.values(Logs).sort((a, b) => a.displayname.localeCompare(b.displayname));
+  sel.innerHTML = items.map((i) => `<option value="${i.filename}"${i.selected ? ' selected' : ''}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`).join('');
   if (items.length && !items.some((i) => i.selected)) {
     items[0].selected = true;
     sel.options[0].selected = true;
@@ -365,7 +326,7 @@ function loadFiles(evt) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", initGrid);
+document.addEventListener('DOMContentLoaded', initGrid);
 
 /*
 function orderedUnion(dicts) {

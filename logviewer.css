@@ -11,8 +11,12 @@ body {
   overflow: hidden;
 }
 
-.hidden, .alwayshidden {
+.hidden {
   display: none;
+}
+
+.alwayshidden {
+  display: none !important;
 }
 
 .grid-stack {
@@ -54,18 +58,21 @@ body {
   background: rgba(128, 128, 128, 0.25);
 }
 
-.control-group, .options-group {
+.control-group,
+.options-group {
   display: flex;
   align-items: center;
   width: 100%;
-  flex-wrap: nowrap; 
+  flex-wrap: nowrap;
 }
-control-group > input {
+
+control-group>input {
   flex-grow: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
 }
+
 #controlpanel {
   width: 100%;
   height: calc(100% - 10px);
@@ -95,4 +102,46 @@ control-group > input {
   margin-left: auto;
   flex-wrap: nowrap;
   flex-shrink: 0;
+}
+
+.svg-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 2px;
+  margin: 2px 4px 1px 0px;
+}
+
+.play-controls {
+  flex: 1;
+}
+
+#playbackpanel {
+  width: calc(100% - 10px);
+}
+
+#playbackpanel .time-group {
+  display: flex;
+  flex-direction: row;
+}
+
+#playbackpanel #time {
+  flex: 1;
+}
+
+#playbackpanel #time-value {
+  width: 11ch;
+  text-align: right;
+  margin-left: 5px;
+}
+
+#speed {
+  width: 6em;
+}
+
+#speed-value {
+  width: 5ch;
+  display: inline-block;
 }
