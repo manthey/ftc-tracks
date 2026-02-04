@@ -4,6 +4,9 @@ const GRID_COLS = 12;
 let Grid;
 let GridEditMode = false;
 let Logs = {};
+const State = {
+  time: 0,
+};
 
 const DEFAULT_LAYOUT = [
   { x: 0, y: 0, w: 4, h: 2, id: 'control' },
@@ -18,9 +21,10 @@ class LogRecord {
     this.filename = filename;
     this.displayname = (filename.includes('_') ? filename.split('_').slice(1).join('_') : filename).split('.')[0].replace(/_/g, ' ');
     this.init = {};
+    this.ikeys = {};
     this.data = [];
     this.telemetry = [];
-    const tkeys = {};
+    this.tkeys = {};
     const keys = {};
     let telemetry;
     let record;
@@ -33,25 +37,29 @@ class LogRecord {
       }
       const key = line[3];
       if (key === 'loop time') {
-        if (telemetry) {
-          this.telemetry.push(telemetry);
-        }
         record = record ? (this.data.push({ ...record }), { ...record }) : {};
+        // we only log changes in telemetry values, which means we can't tell if we skipped logging a value or it
+        // did not change
+        telemetry = telemetry ? (this.telemetry.push({ ...telemetry }), { ...telemetry }) : {};
         const t = parseFloat(line[0]);
         t0 = t0 ?? t;
         keys.time = true;
         keys.count = true;
-        telemetry = {};
         record.time = t - t0;
         this.duration = record.time;
         record.count = this.data.length;
       }
       if (t0 === undefined) {
-        this.init[key] = line[4];
+        if (key !== 'caption') {
+          if (this.ikeys[key] === undefined) {
+            this.ikeys[key] = Object.keys(this.ikeys).length;
+          }
+          this.init[key] = line[4];
+        }
         continue;
       }
-      if (tkeys[key] === undefined) {
-        tkeys[key] = Object.keys(tkeys).length;
+      if (this.tkeys[key] === undefined) {
+        this.tkeys[key] = Object.keys(this.tkeys).length;
       }
       telemetry[key] = line[4];
       let nums = null;
@@ -76,7 +84,6 @@ class LogRecord {
       this.data.push(record);
       this.telemetry.push(telemetry);
       this.keys = keys;
-      this.tkeys = tkeys;
     }
     if (this.data.length < 2) {
       this.data = undefined;
@@ -106,6 +113,23 @@ class LogRecord {
     }
     fields.push(currentField);
     return fields;
+  }
+
+  getIndex(time) {
+    let low = 0;
+    let high = this.data.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      this.data[mid].time > time ? (high = mid) : (low = mid + 1);
+    }
+    return low - 1;
+  }
+
+  getTelemetry(time) {
+    if (time < 0) {
+      return this.init;
+    }
+    return this.telemetry[this.getIndex(time)];
   }
 }
 
@@ -273,19 +297,33 @@ function initGrid() {
   fitGrid();
 
   document.getElementById('file').onchange = loadFiles;
-  document.getElementById('logs').addEventListener('input', updateLogs);
+  document.getElementById('logs').addEventListener('input', () => {
+    updateLogs(true);
+  });
   document.getElementById('remove').onclick = removeLogs;
-  document.getElementById('time').addEventListener('input', () => {
-    $('#time-value').val($('#time').val());
-  });
-  document.getElementById('time-value').addEventListener('input', () => {
-    $('#time').val($('#time-value').val());
-  });
+  document.getElementById('time').addEventListener('input', () => setTime($('#time').val(), 'time'));
+  document.getElementById('time-value').addEventListener('input', () => setTime($('#time-value').val(), 'time-value'));
   document.getElementById('speed').addEventListener('input', () => {
     const speedValue = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.1, 0: 1, 1: 2, 2: 5, 3: 10 };
-    console.log('here', $('#speed').val(), speedValue[$('#speed').val()]);
     $('#speed-value').text(`${speedValue[$('#speed').val()]}x`);
   });
+}
+
+function setTime(time, id, skipUpdate) {
+  if (isFinite(time)) {
+    State.time = parseFloat(time);
+    State.baseTime = State.time;
+    State.referenceTime = Date.now();
+    if (id !== 'time-value') {
+      $('#time-value').val(State.time.toFixed(3));
+    }
+    if (id !== 'time') {
+      $('#time').val(State.time);
+    }
+    if (!skipUpdate) {
+      updateNow();
+    }
+  }
 }
 
 function removeLogs() {
@@ -297,7 +335,7 @@ function removeLogs() {
   updateLogs();
 }
 
-function updateLogs() {
+function updateLogs(skipRerender) {
   const sel = document.getElementById('logs');
   $('option', sel).each(function () {
     const key = $(this).attr('value');
@@ -306,17 +344,90 @@ function updateLogs() {
     }
   });
   const items = Object.values(Logs).sort((a, b) => a.displayname.localeCompare(b.displayname));
-  sel.innerHTML = items.map((i) => `<option value="${i.filename}"${i.selected ? ' selected' : ''}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`).join('');
-  if (items.length && !items.some((i) => i.selected)) {
-    items[0].selected = true;
-    sel.options[0].selected = true;
+  State.sortedLogs = items;
+  if (!skipRerender) {
+    sel.innerHTML = items.map((i) => `<option value="${i.filename}"${i.selected ? ' selected' : ''}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`).join('');
+    if (items.length && !items.some((i) => i.selected)) {
+      items[0].selected = true;
+      sel.options[0].selected = true;
+    }
   }
-  let maxDuration = Object.values(Logs).reduce((duration, log) => Math.max(duration, log.duration), 0);
+  telemetryKeys();
+  let maxDuration = Object.values(Logs).reduce((duration, log) => Math.max(duration, log.selected ? log.duration : 0), 0);
   $('#time').attr('max', maxDuration);
-  if (isFinite(parseFloat($('#time').val())) && parseFloat($('#time').val()) > maxDuration) {
-    $('#time').val(maxDuration);
+  if (State.time > maxDuration) {
+    setTime(maxDuration, undefined, true);
   }
   // DWM::
+  console.log(State);
+  updateNow();
+}
+
+/**
+ * Update all the data based on the time.
+ */
+function updateNow() {
+  updateTelemetry();
+  // DWM::
+}
+
+function updateTelemetry() {
+  const headers = [];
+  const values = [];
+  State.sortedLogs.forEach((log) => {
+    if (log.selected) {
+      headers.push(log.displayname);
+      values.push(log.getTelemetry(State.time));
+    }
+  });
+  const table = document.getElementById('telemetry-table');
+  let thead = table.querySelector('thead') || table.createTHead();
+  let tbody = table.querySelector('tbody') || table.createTBody();
+  const hRow = document.createElement('tr');
+  hRow.appendChild(document.createElement('th'));
+  headers.forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    hRow.appendChild(th);
+  });
+  thead.textContent = '';
+  thead.appendChild(hRow);
+  const fragment = document.createDocumentFragment();
+  (State.time < 0 ? State.ikeys : State.tkeys).forEach((key) => {
+    const tr = document.createElement('tr');
+    const keyCell = document.createElement('td');
+    keyCell.textContent = key;
+    tr.appendChild(keyCell);
+    values.forEach((colData) => {
+      const td = document.createElement('td');
+      td.textContent = colData[key] ?? '';
+      tr.appendChild(td);
+    });
+    fragment.appendChild(tr);
+  });
+  tbody.textContent = '';
+  tbody.appendChild(fragment);
+}
+
+function telemetryKeys() {
+  ['ikeys', 'tkeys'].forEach((part) => {
+    const minValues = {};
+    Object.values(Logs).forEach((log) => {
+      if (log.selected) {
+        Object.entries(log[part]).forEach(([key, value]) => {
+          if (!(key in minValues) || value < minValues[key]) {
+            minValues[key] = value;
+          }
+        });
+      }
+    });
+    State[part] = Object.keys(minValues).sort((a, b) => {
+      if (minValues[a] !== minValues[b]) {
+        return minValues[a] - minValues[b];
+      }
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  });
 }
 
 function loadFiles(evt) {
@@ -342,24 +453,3 @@ function loadFiles(evt) {
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);
-
-/*
-function orderedUnion(dicts) {
-    const minValues = {};
-    
-    dicts.forEach(dict => {
-        Object.entries(dict).forEach(([key, value]) => {
-            if (!(key in minValues) || value < minValues[key]) {
-                minValues[key] = value;
-            }
-        });
-    });
-    
-    return Object.keys(minValues).sort((a, b) => {
-        if (minValues[a] !== minValues[b]) {
-            return minValues[a] - minValues[b];
-        }
-        return a < b ? -1 : a > b ? 1 : 0;
-    });
-}
-*/
