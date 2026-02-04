@@ -165,3 +165,24 @@ control-group>input {
 #telemetry-table td {
   white-space: nowrap;
 }
+
+#fieldpanel #map {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+        margin: 0;
+        overflow: hidden;
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        right: 0;
+}
+
+#fieldpanel #info {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 2px;
+}

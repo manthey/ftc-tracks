@@ -1,11 +1,19 @@
 const STORAGE_KEY = 'gs-dashboard';
 const GRID_COLS = 12;
+const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.5, 0: 1, 1: 2, 2: 5, 3: 10, 4: 20 };
 
 let Grid;
 let GridEditMode = false;
 let Logs = {};
+const MapSettings = {
+  field: ['decode2.png', 72, 72, 72, 72],
+};
 const State = {
   time: 0,
+  playing: false,
+  continuous: false,
+  baseTime: 0, // the scrubber time when the referenceTime references
+  referenceTime: Date.now(),
 };
 
 const DEFAULT_LAYOUT = [
@@ -304,16 +312,158 @@ function initGrid() {
   document.getElementById('time').addEventListener('input', () => setTime($('#time').val(), 'time'));
   document.getElementById('time-value').addEventListener('input', () => setTime($('#time-value').val(), 'time-value'));
   document.getElementById('speed').addEventListener('input', () => {
-    const speedValue = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.1, 0: 1, 1: 2, 2: 5, 3: 10 };
-    $('#speed-value').text(`${speedValue[$('#speed').val()]}x`);
-  });
-}
-
-function setTime(time, id, skipUpdate) {
-  if (isFinite(time)) {
-    State.time = parseFloat(time);
+    $('#speed-value').text(`${SPEED_VALUES[$('#speed').val()]}x`);
     State.baseTime = State.time;
     State.referenceTime = Date.now();
+  });
+  document.getElementById('start-anim').onclick = () => setTime(0);
+  document.getElementById('pause-anim').onclick = () => {
+    State.playing = State.continuous = false;
+  };
+  document.getElementById('back-anim').onclick = () => {
+    State.playing = State.continuous = false;
+    const log = longestSelectedLog();
+    if (log) {
+      const idx = log.getIndex(State.time);
+      setTime(idx ? log.data[idx - 1].time : -1);
+    }
+  };
+  document.getElementById('step-anim').onclick = () => {
+    State.playing = State.continuous = false;
+    const log = longestSelectedLog();
+    if (log) {
+      const idx = log.getIndex(State.time);
+      if (idx + 1 < log.data.length) {
+        setTime(log.data[idx + 1].time);
+      }
+    }
+  };
+  document.getElementById('play-anim').onclick = () => {
+    State.continuous = false;
+    startPlayTimer();
+  };
+  document.getElementById('play-all-anim').onclick = () => {
+    State.continuous = true;
+    startPlayTimer();
+  };
+  addField();
+  // DWM::
+}
+
+function addField() {
+  if (!$('#fieldpanel:not(.alwayshidden) #map').length) {
+    return;
+  }
+  State.map = geo.map({
+    node: $('#fieldpanel:not(.alwayshidden) #map')[0],
+    ingcs: '+proj=longlat +axis=esu',
+    gcs: '+proj=longlat +axis=enu',
+    maxBounds: { left: -80, top: -80, right: 80, bottom: 80 },
+    unitsPerPixel: 1,
+    center: { x: 0, y: 0 },
+    min: 0,
+    max: 6,
+    zoom: 0,
+    clampBoundsX: true,
+    clampBoundsY: true,
+    clampZoom: true,
+  });
+  State.map.geoOn(geo.event.mousemove, function (evt) {
+    $('#fieldpanel #info').text('x: ' + evt.geo.x.toFixed(3) + ', y: ' + -evt.geo.y.toFixed(3));
+  });
+  State.quadData = [
+    {
+      ll: { x: -MapSettings.field[1], y: MapSettings.field[4] },
+      ur: { x: MapSettings.field[3], y: -MapSettings.field[2] },
+      image: MapSettings.field[0],
+    },
+  ];
+  var layer = State.map.createLayer('feature', {
+    features: ['quad', 'marker'],
+  });
+  State.quads = layer.createFeature('quad');
+  State.quads.data(State.quadData);
+  State.map.draw();
+
+  /*
+    {
+      ll: {x: 0, y: 0},
+      lr: {x: 0, y: 0},
+      ul: {x: 0, y: 0},
+      ur: {x: 0, y: 0},
+      image: settings.robots[0][0],
+    },
+  ];
+  var tlayer = project.map.createLayer('feature', {
+    features: ['text'],
+  });
+  project.markers = layer.createFeature('marker');
+  project.text = tlayer.createFeature('text');
+  */
+}
+
+function startPlayTimer() {
+  State.playing = true;
+  if (!State.animationTimer) {
+    State.animationTimer = window.requestAnimationFrame(playUpdate);
+  }
+  State.baseTime = State.time;
+  State.referenceTime = Date.now();
+}
+
+function playUpdate() {
+  State.animationTimer = null;
+  if (!State.playing) {
+    return;
+  }
+  let speed = SPEED_VALUES[$('#speed').val()] || 1;
+  let newTime = (Date.now() - State.referenceTime) * 0.001 * speed + State.baseTime;
+  setTime(Math.min(State.maxDuration, newTime), undefined, false, true);
+  if (newTime >= State.maxDuration) {
+    if (!State.continuous) {
+      State.playing = false;
+    } else if (newTime >= State.maxDuration + 3) {
+      const logsElement = document.getElementById('logs');
+      const logOptions = [...logsElement.options];
+      const selectedIndexes = logOptions.reduce((acc, opt, idx) => (opt.selected && acc.push(idx), acc), []);
+      const targetIndex = !logOptions.length ? -1 : !selectedIndexes.length || selectedIndexes.length === logOptions.length ? 0 : selectedIndexes.at(-1) < logOptions.length - 1 ? selectedIndexes.at(-1) + 1 : logOptions.findIndex((opt) => !opt.selected) || 0;
+      logOptions.forEach((opt) => (opt.selected = false));
+      if (targetIndex >= 0) {
+        logOptions[targetIndex].selected = true;
+      }
+      updateLogs(true);
+      setTime(0, undefined, true);
+      State.baseTime = State.time;
+      State.referenceTime = Date.now();
+      updateNow();
+    }
+  }
+  if (State.playing) {
+    State.animationTimer = window.requestAnimationFrame(playUpdate);
+  }
+}
+
+function firstSelectedLog() {
+  return State.sortedLogs.filter((log) => log.selected)[0];
+}
+
+function longestSelectedLog() {
+  let picked;
+  State.sortedLogs.forEach((log) => {
+    if (log.selected && (!picked || log.duration > picked.duration)) {
+      picked = log;
+    }
+  });
+  return picked;
+}
+
+function setTime(time, id, skipUpdate, skipBaseSet) {
+  if (isFinite(time)) {
+    State.time = parseFloat(time);
+    if (!skipBaseSet) {
+      State.baseTime = State.time;
+      State.referenceTime = Date.now();
+    }
     if (id !== 'time-value') {
       $('#time-value').val(State.time.toFixed(3));
     }
@@ -353,10 +503,10 @@ function updateLogs(skipRerender) {
     }
   }
   telemetryKeys();
-  let maxDuration = Object.values(Logs).reduce((duration, log) => Math.max(duration, log.selected ? log.duration : 0), 0);
-  $('#time').attr('max', maxDuration);
-  if (State.time > maxDuration) {
-    setTime(maxDuration, undefined, true);
+  State.maxDuration = Object.values(Logs).reduce((duration, log) => Math.max(duration, log.selected ? log.duration : 0), 0);
+  $('#time').attr('max', State.maxDuration);
+  if (State.time > State.maxDuration) {
+    setTime(State.maxDuration, undefined, true);
   }
   // DWM::
   console.log(State);
