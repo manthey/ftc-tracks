@@ -266,7 +266,7 @@ function removePanel(id) {
 }
 
 function initGrid() {
-  State.isdark = !!(window?.matchMedia?.('(prefers-color-scheme:dark)')?.matches);
+  State.isdark = !!window?.matchMedia?.('(prefers-color-scheme:dark)')?.matches;
   const state = loadState();
   GridEditMode = state.editMode;
   Grid = GridStack.init({
