@@ -94,9 +94,10 @@
     <div id="info"></div>
   </div>
   <div class="alwayshidden" id="graphpanel">
-    <div id="plot"></div>
+    <button id="cfg-plot">Configure Plot</button>
+    <div id="graph-plot"></div>
   </div>
-  <div id="modal">
+  <div id="graph-modal">
     <div class="contents">
       <h3>Plot Configuration</h3>
       <label>X Axis</label>
@@ -115,7 +116,7 @@
           <div class="checklist" id="rightYAxis"></div>
         </div>
       </div>
-      <div class="buttons"><button onclick="apply()">Apply</button></div>
+      <div class="buttons"><button onclick="applyGraphOptions()">Apply</button></div>
     </div>
   </div>
 </body>

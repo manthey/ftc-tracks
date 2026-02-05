@@ -350,6 +350,23 @@ function initGrid() {
     startPlayTimer();
   };
   addField();
+  document.getElementById('cfg-plot').onclick = showGraphDialog;
+  // DWM::
+}
+
+function showGraphDialog() {
+  console.log('HERE');
+  document.getElementById('graph-modal').classList.add('open');
+}
+
+function hideGraphDialog() {
+  document.getElementById('graph-modal').classList.remove('open');
+}
+
+
+function applyGraphOptions() {
+  hideGraphDialog();
+  // drawPlot();
   // DWM::
 }
 
