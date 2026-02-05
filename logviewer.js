@@ -7,6 +7,8 @@ let GridEditMode = false;
 let Logs = {};
 const MapSettings = {
   field: ['decode2.png', 72, 72, 72, 72],
+  robots: [['decodebot33dpi.png', 8.25, 8.75, 8.25, 8.75]],
+  parts: [['indexer5inraddark.png', 5, 5, 5, 5]],
 };
 const State = {
   time: 0,
@@ -383,23 +385,22 @@ function addField() {
   });
   State.quads = layer.createFeature('quad');
   State.quads.data(State.quadData);
-  State.map.draw();
 
-  /*
-    {
-      ll: {x: 0, y: 0},
-      lr: {x: 0, y: 0},
-      ul: {x: 0, y: 0},
-      ur: {x: 0, y: 0},
-      image: settings.robots[0][0],
-    },
-  ];
-  var tlayer = project.map.createLayer('feature', {
-    features: ['text'],
-  });
-  project.markers = layer.createFeature('marker');
-  project.text = tlayer.createFeature('text');
-  */
+  State.track = layer
+    .createFeature('track')
+    .data([])
+    .style({
+      strokeWidth: 3,
+      strokeColor: 'black',
+    })
+    .markerStyle({ radius: 0, strokeWidth: 0 })
+    .futureStyle({ strokeOpacity: 0 })
+    .track((t) => t.data)
+    .time((d) => d.time)
+    .position((d, i, t, j) => (!State.sortedLogs[j].selected ? { x: -10000, y: -10000 } : { x: d['Field position 1'], y: -d['Field position 2'], angle: (d['Field position 3'] * Math.PI) / 180 }))
+    .startTime(0)
+    .endTime(0);
+  State.map.draw();
 }
 
 function startPlayTimer() {
@@ -508,8 +509,11 @@ function updateLogs(skipRerender) {
   if (State.time > State.maxDuration) {
     setTime(State.maxDuration, undefined, true);
   }
+  if (State.track) {
+    State.track.data(State.sortedLogs);
+  }
   // DWM::
-  console.log(State);
+  console.log(State); // DWM::
   updateNow();
 }
 
@@ -518,6 +522,11 @@ function updateLogs(skipRerender) {
  */
 function updateNow() {
   updateTelemetry();
+  if (State.track) {
+    State.track.endTime(State.time);
+    updateRobotImages();
+    State.track.draw();
+  }
   // DWM::
 }
 
@@ -578,6 +587,115 @@ function telemetryKeys() {
       return a < b ? -1 : a > b ? 1 : 0;
     });
   });
+}
+
+function addRobotImage(quadData, idx, pos, rnum) {
+  if (idx <= quadData.length) {
+    quadData.push(Object.assign({}, quadData[quadData.length - 1]));
+  }
+  var left = MapSettings.robots[rnum][1];
+  var front = MapSettings.robots[rnum][2];
+  var right = MapSettings.robots[rnum][3];
+  var back = MapSettings.robots[rnum][4];
+  quadData[idx].image = MapSettings.robots[rnum][0];
+  quadData[idx].ur = {
+    x: pos.x + front * Math.cos(pos.angle) - right * Math.sin(pos.angle),
+    y: pos.y + front * Math.sin(pos.angle) + right * Math.cos(pos.angle),
+  };
+  quadData[idx].lr = {
+    x: pos.x + -back * Math.cos(pos.angle) - right * Math.sin(pos.angle),
+    y: pos.y + -back * Math.sin(pos.angle) + right * Math.cos(pos.angle),
+  };
+  quadData[idx].ll = {
+    x: pos.x + -back * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
+    y: pos.y + -back * Math.sin(pos.angle) + -left * Math.cos(pos.angle),
+  };
+  quadData[idx].ul = {
+    x: pos.x + front * Math.cos(pos.angle) - -left * Math.sin(pos.angle),
+    y: pos.y + front * Math.sin(pos.angle) + -left * Math.cos(pos.angle),
+  };
+  return idx + 1;
+}
+
+function addPartImage(quadData, idx, pos, partdata) {
+  let pnum = partdata[0];
+  let x = pos.x - partdata[1] * Math.sin(pos.angle) + partdata[2] * Math.cos(pos.angle);
+  let y = pos.y + partdata[1] * Math.cos(pos.angle) + partdata[2] * Math.sin(pos.angle);
+  let angle = pos.angle + partdata[3] * (Math.PI / 180);
+  if (!MapSettings.parts[pnum] || !isFinite(x) || !isFinite(y) || !isFinite(angle)) {
+    return idx;
+  }
+  if (idx <= quadData.length) {
+    quadData.push(Object.assign({}, quadData[quadData.length - 1]));
+  }
+  var left = MapSettings.parts[pnum][1];
+  var front = MapSettings.parts[pnum][2];
+  var right = MapSettings.parts[pnum][3];
+  var back = MapSettings.parts[pnum][4];
+  quadData[idx].image = MapSettings.parts[pnum][0];
+  quadData[idx].ur = {
+    x: x + front * Math.cos(angle) - right * Math.sin(angle),
+    y: y + front * Math.sin(angle) + right * Math.cos(angle),
+  };
+  quadData[idx].lr = {
+    x: x + -back * Math.cos(angle) - right * Math.sin(angle),
+    y: y + -back * Math.sin(angle) + right * Math.cos(angle),
+  };
+  quadData[idx].ll = {
+    x: x + -back * Math.cos(angle) - -left * Math.sin(angle),
+    y: y + -back * Math.sin(angle) + -left * Math.cos(angle),
+  };
+  quadData[idx].ul = {
+    x: x + front * Math.cos(angle) - -left * Math.sin(angle),
+    y: y + front * Math.sin(angle) + -left * Math.cos(angle),
+  };
+  return idx + 1;
+}
+
+function updateRobotImages() {
+  const quadData = State.quadData;
+  let qidx = 1;
+  let tpos = State.track.calculateTimePosition(State.track.endTime(), undefined, true);
+  State.sortedLogs.forEach((log, idx) => {
+    if (!log.selected || !isFinite(tpos[idx].x) || tpos[idx].x < -100 || tpos[idx].x > 100 || tpos[idx].y < -100 || tpos[idx].y > 100) {
+      return;
+    }
+    let indexer;
+    if (tpos[idx].posidx !== undefined) {
+      const ang = log.data[tpos[idx].posidx]['Field position 3'];
+      tpos[idx].angle = (ang * Math.PI) / 180;
+      indexer = log.data[tpos[idx].posidx]['Indexer Position'];
+    } else {
+      const ang0 = log.data[tpos[idx].posidx0]['Field position 3'];
+      let ang1 = log.data[tpos[idx].posidx1]['Field position 3'];
+      if (Math.abs(ang0 - ang1) > 180) {
+        ang1 += ang1 < ang0 ? 360 : -360;
+      }
+      tpos[idx].angle = ((ang0 * tpos[idx].factor0 + ang1 * tpos[idx].factor1) * Math.PI) / 180;
+      const indexer0 = log.data[tpos[idx].posidx0]['Indexer Position'];
+      let indexer1 = log.data[tpos[idx].posidx1]['Indexer Position'];
+      if (Math.abs(indexer0 - indexer1) > 180) {
+        indexer1 += indexer1 < indexer0 ? 360 : -360;
+      }
+      indexer = indexer0 * tpos[idx].factor0 + indexer1 * tpos[idx].factor1;
+    }
+    qidx = addRobotImage(State.quadData, qidx, tpos[idx], 0);
+    qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, indexer]);
+  });
+  if (qidx === 1) {
+    quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = { x: -1000, y: -1000 };
+    qidx += 1;
+  }
+  while (quadData.length > qidx && quadData.length > 2) {
+    quadData.pop();
+  }
+  State.quads.data(State.quadData);
+  State.quadData.forEach((qd, idx) => {
+    if (idx) {
+      State.quads.cacheUpdate(idx);
+    }
+  });
+  State.quads.layer().map().draw();
 }
 
 function loadFiles(evt) {
