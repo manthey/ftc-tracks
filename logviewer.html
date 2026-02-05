@@ -85,13 +85,38 @@
     </div>
   </div>
   <div class="alwayshidden" id="telemetrypanel">
-    <table id="telemetry-table" />
+    <table id="telemetry-table"></table>
   </div>
   <div class="alwayshidden" id="fieldpanel">
     <div id="map" class="geojs-map highlight-focus" tabindex="0"
       style="touch-action: none; user-select: none; -webkit-user-drag: none; -webkit-tap-highlight-color: rgba(0, 0, 0, 0)">
     </div>
     <div id="info"></div>
+  </div>
+  <div class="alwayshidden" id="graphpanel">
+    <div id="plot"></div>
+  </div>
+  <div id="modal">
+    <div class="contents">
+      <h3>Plot Configuration</h3>
+      <label>X Axis</label>
+      <select id="xAxis"></select>
+      <label>Color By Category</label>
+      <select id="categoryValue">
+        <option value="">None</option>
+      </select>
+      <div class="columns">
+        <div>
+          <label>Left Y Axis</label>
+          <div class="checklist" id="leftYAxis"></div>
+        </div>
+        <div>
+          <label>Right Y Axis</label>
+          <div class="checklist" id="rightYAxis"></div>
+        </div>
+      </div>
+      <div class="buttons"><button onclick="apply()">Apply</button></div>
+    </div>
   </div>
 </body>
 
