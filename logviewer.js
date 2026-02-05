@@ -266,6 +266,7 @@ function removePanel(id) {
 }
 
 function initGrid() {
+  State.isdark = !!(window?.matchMedia?.('(prefers-color-scheme:dark)')?.matches);
   const state = loadState();
   GridEditMode = state.editMode;
   Grid = GridStack.init({
@@ -391,7 +392,7 @@ function addField() {
     .data([])
     .style({
       strokeWidth: 3,
-      strokeColor: 'black',
+      strokeColor: State.isdark ? '#404040' : 'black',
     })
     .markerStyle({ radius: 0, strokeWidth: 0 })
     .futureStyle({ strokeOpacity: 0 })
