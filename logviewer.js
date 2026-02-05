@@ -229,7 +229,12 @@ function showAddButtons() {
   if (!GridEditMode) {
     $('.addgrid').addClass('hidden');
   } else {
-    $('#addgraph.addgrid, #addvideo.addgrid').removeClass('hidden');
+    // enable to show video panels                   $('#addvideo.addgrid').removeClass('hidden');
+    // switch to this to have any number of graphs   $('#addgraph.addgrid').removeClass('hidden');
+    $('#addgraph.addgrid').toggleClass(
+      'hidden',
+      Grid.getGridItems().some((el) => el.gridstackNode.id === 'graph'),
+    );
     $('#addfield.addgrid').toggleClass(
       'hidden',
       Grid.getGridItems().some((el) => el.gridstackNode.id === 'field'),
