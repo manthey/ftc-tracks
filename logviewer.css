@@ -35,6 +35,7 @@ body {
 
 .close-btn {
   position: absolute;
+  z-index: 2000;
   top: 4px;
   right: 4px;
   width: 24px;
@@ -185,4 +186,99 @@ control-group>input {
   right: 0;
   background: rgba(255, 255, 255, 0.75);
   padding: 2px;
+}
+
+#graphpanel #cfg-plot {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  z-index: 1000;
+}
+
+#graphpanel #graph-plot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+#graph-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+}
+
+#graph-modal.open {
+  display: flex;
+}
+
+#graph-modal .contents {
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  width: min(700px, calc(100vw - 60px));
+  height: calc(100vh - 60px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+#graph-modal .contents h3 {
+  margin: 0 0 15px;
+}
+
+#graph-modal .contents label {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: bold;
+}
+
+#graph-modal .contents select {
+  width: 100%;
+  padding: 6px;
+}
+
+#graph-modal .columns {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+}
+
+#graph-modal .columns>div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#graph-modal .checklist {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 8px;
+  background: #fafafa;
+}
+
+#graph-modal .checklist label {
+  display: block;
+  font-weight: normal;
+  margin: 0;
+  cursor: pointer;
+}
+
+#graph-modal .buttons {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+#graph-modal .buttons button {
+  flex: 1;
+  padding: 10px;
+  cursor: pointer;
 }
