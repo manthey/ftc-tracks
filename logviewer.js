@@ -36,6 +36,7 @@ class LogRecord {
     this.telemetry = [];
     this.tkeys = {};
     const keys = {};
+    this.orderedKeys = [];
     let telemetry;
     let record;
     let t0 = undefined;
@@ -53,8 +54,8 @@ class LogRecord {
         telemetry = telemetry ? (this.telemetry.push({ ...telemetry }), { ...telemetry }) : {};
         const t = parseFloat(line[0]);
         t0 = t0 ?? t;
-        keys.time = true;
-        keys.count = true;
+        keys.time = keys.time !== undefined ? keys.time : Object.keys(keys).length;
+        keys.count = keys.count || Object.keys(keys).length;
         record.time = t - t0;
         this.duration = record.time;
         record.count = this.data.length;
@@ -80,12 +81,12 @@ class LogRecord {
         }
       }
       if (!nums || nums.length <= 1) {
-        keys[key] = true;
+        keys[key] = keys[key] || Object.keys(keys).length;
         record[key] = nums?.length ? nums[0] : line[4];
       } else {
         nums.forEach((n, i) => {
           const k = `${key} ${i + 1}`;
-          keys[k] = true;
+          keys[k] = keys[k] || Object.keys(keys).length;
           record[k] = n;
         });
       }
@@ -359,15 +360,82 @@ function initGrid() {
   // DWM::
 }
 
+function sparkline(yi) {
+  /* if we graph based on the x-axis, we can either (a) sort the data so that 
+   * we reveal coupling between the values, (b) draw mini-line plots which 
+   * would be previews, (c) plot versus time, or (d) plot versus count; the 
+   * last two are probably the most obvious of what is going on. */
+  const w = 72, h = 18;
+  // change this to get time or count explicitly for options (c) or (d)
+  const xi = +document.getElementById('xAxis').value;
+  const rows = CSVData.slice(1);
+  let pts = rows.map(r => ({x: parseFloat(r[xi]), y: parseFloat(r[yi])}))
+               .filter(p => !isNaN(p.x) && !isNaN(p.y));
+  if (pts.length < 2) {
+    return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"></svg>`;
+  }
+  // disable this line for option (b)
+  pts.sort((a, b) => a.x - b.x);
+  if (pts.length > w * 2) {
+    const step = pts.length / w / 2;
+    pts = Array.from({length: w * 2}, (_, i) => pts[Math.floor(i * step)]);
+  }
+  const valsx = pts.map(p => p.x);
+  const minx = Math.min(...valsx), maxx = Math.max(...valsx), rangex = maxx - minx || 1;
+  const valsy = pts.map(p => p.y);
+  const miny = Math.min(...valsy), maxy = Math.max(...valsy), rangey = maxy - miny || 1;
+  let d = '';
+  for (let i = 0; i < pts.length; i++) {
+    // for options all but (b)
+    const x = (i / (pts.length - 1)) * w;
+    // for option (b)
+    // const x = ((pts[i].x - minx) / rangex) * (w - 1);
+    const y = h - 1 - ((pts[i].y - miny) / rangey) * (h - 2);
+    d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+  }
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#888" stroke-width="1"/></svg>`;
+}
+
+function getChecked(n) {
+  return [...document.querySelectorAll(`input[name="${n}"]:checked`)].map((e) => +e.value);
+}
+
+function updateSparklines() {
+  const lc = document.getElementById('leftYAxis');
+  const rc = document.getElementById('rightYAxis');
+  const lSel = getChecked('L');
+  const rSel = getChecked('R');
+  lc.innerHTML = '';
+  rc.innerHTML = '';
+  State.columns.forEach((col, idx) => {
+    if (!col.text) {
+      const s = ''; // sparkline(idx);
+      lc.innerHTML += `<label>${s}<input type="checkbox" name="L" value="${col.key}"${lSel.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
+      rc.innerHTML += `<label>${s}<input type="checkbox" name="R" value="${col.key}"${rSel.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
+    }
+  });
+}
+
 function showGraphDialog() {
-  console.log('HERE');
+  const xAxis = document.getElementById('xAxis');
+  const cat = document.getElementById('categoryValue');
+  xAxis.innerHTML = '';
+  cat.innerHTML = '<option value="">None</option>';
+  State.columns.forEach((col, idx) => {
+    if (!col.text) {
+      xAxis.add(new Option(col.key, idx));
+    }
+    if (col.unique) {
+      cat.add(new Option(col.key, idx));
+    }
+  });
+  updateSparklines();
   document.getElementById('graph-modal').classList.add('open');
 }
 
 function hideGraphDialog() {
   document.getElementById('graph-modal').classList.remove('open');
 }
-
 
 function applyGraphOptions() {
   hideGraphDialog();
@@ -535,6 +603,7 @@ function updateLogs(skipRerender) {
   if (State.track) {
     State.track.data(State.sortedLogs);
   }
+  categorizeColumns();
   // DWM::
   console.log(State); // DWM::
   updateNow();
@@ -597,6 +666,9 @@ function telemetryKeys() {
     Object.values(Logs).forEach((log) => {
       if (log.selected) {
         Object.entries(log[part]).forEach(([key, value]) => {
+          if (key.startsWith(' ')) {
+            value += 1000;
+          }
           if (!(key in minValues) || value < minValues[key]) {
             minValues[key] = value;
           }
@@ -610,6 +682,34 @@ function telemetryKeys() {
       return a < b ? -1 : a > b ? 1 : 0;
     });
   });
+}
+
+function categorizeColumns() {
+  const columns = {};
+  State.sortedLogs.forEach((log) => {
+    Object.keys(log.keys).sort((a, b) => log.keys[a] - log.keys[b]).forEach((key) => {
+      if (!columns[key]) {
+        columns[key] = { key: key, unique: {}, text: false, pos: Object.keys(columns).length };
+      }
+      for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
+        const row = log.data[r];
+        const val = row[key];
+        if (val !== undefined && val !== null && val !== '') {
+          columns[key].any = true;
+          if (!isFinite(val)) {
+            columns[key].text = true;
+          }
+          if (columns[key].unique !== undefined) {
+            columns[key].unique[val] = true;
+            if (Object.keys(columns[key].unique).length > 50) {
+              columns[key].unique = undefined;
+            }
+          }
+        }
+      }
+    });
+  });
+  State.columns = Object.values(columns).sort((a, b) => a.pos - b.pos).filter(col => col.any);
 }
 
 function addRobotImage(quadData, idx, pos, rnum) {
@@ -686,7 +786,7 @@ function updateRobotImages() {
     let indexer;
     if (tpos[idx].posidx !== undefined) {
       const ang = log.data[tpos[idx].posidx]['Field position 3'];
-      tpos[idx].angle = (ang * Math.PI) / 180;
+      tpos[idx].angle = -(ang * Math.PI) / 180;
       indexer = log.data[tpos[idx].posidx]['Indexer Position'];
     } else {
       const ang0 = log.data[tpos[idx].posidx0]['Field position 3'];
@@ -694,7 +794,7 @@ function updateRobotImages() {
       if (Math.abs(ang0 - ang1) > 180) {
         ang1 += ang1 < ang0 ? 360 : -360;
       }
-      tpos[idx].angle = ((ang0 * tpos[idx].factor0 + ang1 * tpos[idx].factor1) * Math.PI) / 180;
+      tpos[idx].angle = -((ang0 * tpos[idx].factor0 + ang1 * tpos[idx].factor1) * Math.PI) / 180;
       const indexer0 = log.data[tpos[idx].posidx0]['Indexer Position'];
       let indexer1 = log.data[tpos[idx].posidx1]['Indexer Position'];
       if (Math.abs(indexer0 - indexer1) > 180) {
@@ -703,7 +803,7 @@ function updateRobotImages() {
       indexer = indexer0 * tpos[idx].factor0 + indexer1 * tpos[idx].factor1;
     }
     qidx = addRobotImage(State.quadData, qidx, tpos[idx], 0);
-    qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, indexer]);
+    qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, -indexer]);
   });
   if (qidx === 1) {
     quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = { x: -1000, y: -1000 };
@@ -744,3 +844,17 @@ function loadFiles(evt) {
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);
+
+// TODO:
+// graph
+// realign tracks
+// multiple graphs
+// video
+// multiple video
+// hide tracks
+// default size based on window aspect ratio
+// reset tile positions
+// visualize shoot lines
+// visualize april tag positions / bearings
+// overlay hood / flywheel settings
+// test dark mode colors
