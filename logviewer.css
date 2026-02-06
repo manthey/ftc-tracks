@@ -282,3 +282,14 @@ control-group>input {
   padding: 10px;
   cursor: pointer;
 }
+
+#graph-cursor {
+  position: absolute;
+  background: #808080;
+  pointer-events: none;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  z-index: 10;
+}
