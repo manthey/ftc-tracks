@@ -540,7 +540,7 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
 
 function drawGraph(graphNumber) {
   const gr = State.graphs[graphNumber];
-  if (!gr.x || !gr.left.length + gr.right.length) {
+  if (!gr.x || !(gr.left.length + gr.right.length)) {
     document.getElementById('graph-plot').innerHTML = '';
     return;
   }
@@ -568,11 +568,12 @@ function drawGraph(graphNumber) {
     });
   });
 
+  console.log(traces);
   Plotly.react(
     'graph-plot',
     traces,
     {
-      margin: { l: 80, r: 80, t: 30, b: 50 },
+      margin: { l: 80, r: 80, t: 50, b: 30 },
       hovermode: 'x unified',
       xaxis: {
         title: State.columns[gr.x],
