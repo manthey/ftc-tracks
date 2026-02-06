@@ -686,7 +686,7 @@ function updateRobotImages() {
     let indexer;
     if (tpos[idx].posidx !== undefined) {
       const ang = log.data[tpos[idx].posidx]['Field position 3'];
-      tpos[idx].angle = (ang * Math.PI) / 180;
+      tpos[idx].angle = -(ang * Math.PI) / 180;
       indexer = log.data[tpos[idx].posidx]['Indexer Position'];
     } else {
       const ang0 = log.data[tpos[idx].posidx0]['Field position 3'];
@@ -694,7 +694,7 @@ function updateRobotImages() {
       if (Math.abs(ang0 - ang1) > 180) {
         ang1 += ang1 < ang0 ? 360 : -360;
       }
-      tpos[idx].angle = ((ang0 * tpos[idx].factor0 + ang1 * tpos[idx].factor1) * Math.PI) / 180;
+      tpos[idx].angle = -((ang0 * tpos[idx].factor0 + ang1 * tpos[idx].factor1) * Math.PI) / 180;
       const indexer0 = log.data[tpos[idx].posidx0]['Indexer Position'];
       let indexer1 = log.data[tpos[idx].posidx1]['Indexer Position'];
       if (Math.abs(indexer0 - indexer1) > 180) {
@@ -703,7 +703,7 @@ function updateRobotImages() {
       indexer = indexer0 * tpos[idx].factor0 + indexer1 * tpos[idx].factor1;
     }
     qidx = addRobotImage(State.quadData, qidx, tpos[idx], 0);
-    qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, indexer]);
+    qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, -indexer]);
   });
   if (qidx === 1) {
     quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = { x: -1000, y: -1000 };
