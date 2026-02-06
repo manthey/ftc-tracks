@@ -1,6 +1,9 @@
 const STORAGE_KEY = 'gs-dashboard';
 const GRID_COLS = 12;
 const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.5, 0: 1, 1: 2, 2: 5, 3: 10, 4: 20 };
+const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
+const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
+const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 
 let Grid;
 let GridEditMode = false;
@@ -16,6 +19,7 @@ const State = {
   continuous: false,
   baseTime: 0, // the scrubber time when the referenceTime references
   referenceTime: Date.now(),
+  graphs: [{ x: 'time', category: undefined, left: [], right: [] }],
 };
 
 const DEFAULT_LAYOUT = [
@@ -360,76 +364,83 @@ function initGrid() {
   // DWM::
 }
 
-function sparkline(yi) {
-  /* if we graph based on the x-axis, we can either (a) sort the data so that 
-   * we reveal coupling between the values, (b) draw mini-line plots which 
-   * would be previews, (c) plot versus time, or (d) plot versus count; the 
+function sparkline(yidx) {
+  /* if we graph based on the x-axis, we can either (a) sort the data so that
+   * we reveal coupling between the values, (b) draw mini-line plots which
+   * would be previews, (c) plot versus time, or (d) plot versus count; the
    * last two are probably the most obvious of what is going on. */
-  const w = 72, h = 18;
+  const w = 72;
+  const h = 18;
   // change this to get time or count explicitly for options (c) or (d)
-  const xi = +document.getElementById('xAxis').value;
-  const rows = CSVData.slice(1);
-  let pts = rows.map(r => ({x: parseFloat(r[xi]), y: parseFloat(r[yi])}))
-               .filter(p => !isNaN(p.x) && !isNaN(p.y));
-  if (pts.length < 2) {
-    return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"></svg>`;
-  }
-  // disable this line for option (b)
-  pts.sort((a, b) => a.x - b.x);
-  if (pts.length > w * 2) {
-    const step = pts.length / w / 2;
-    pts = Array.from({length: w * 2}, (_, i) => pts[Math.floor(i * step)]);
-  }
-  const valsx = pts.map(p => p.x);
-  const minx = Math.min(...valsx), maxx = Math.max(...valsx), rangex = maxx - minx || 1;
-  const valsy = pts.map(p => p.y);
-  const miny = Math.min(...valsy), maxy = Math.max(...valsy), rangey = maxy - miny || 1;
-  let d = '';
-  for (let i = 0; i < pts.length; i++) {
-    // for options all but (b)
-    const x = (i / (pts.length - 1)) * w;
-    // for option (b)
-    // const x = ((pts[i].x - minx) / rangex) * (w - 1);
-    const y = h - 1 - ((pts[i].y - miny) / rangey) * (h - 2);
-    d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
-  }
-  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px"><path d="${d}" fill="none" stroke="#888" stroke-width="1"/></svg>`;
+  // const xkey = State.columns[+document.getElementById('xAxis').value].key;
+  const xkey = 'time';
+  const ykey = State.columns[yidx].key;
+  const paths = [];
+  State.sortedLogs.forEach((log) => {
+    if (!log.selected) {
+      return;
+    }
+    let pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
+    if (pts.length < 2) {
+      return;
+    }
+    // disable this line for option (b)
+    pts.sort((a, b) => a.x - b.x);
+    if (pts.length > w * 2) {
+      const step = pts.length / w / 2;
+      pts = Array.from({ length: w * 2 }, (_, i) => pts[Math.floor(i * step)]);
+    }
+    const valsx = pts.map((p) => p.x);
+    const minx = Math.min(...valsx),
+      maxx = Math.max(...valsx),
+      rangex = maxx - minx || 1;
+    const valsy = pts.map((p) => p.y);
+    const miny = Math.min(...valsy),
+      maxy = Math.max(...valsy),
+      rangey = maxy - miny || 1;
+    let d = '';
+    for (let i = 0; i < pts.length; i++) {
+      // for options all but (b)
+      const x = (i / (pts.length - 1)) * w;
+      // for option (b)
+      // const x = ((pts[i].x - minx) / rangex) * (w - 1);
+      const y = h - 1 - ((pts[i].y - miny) / rangey) * (h - 2);
+      d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+    }
+    paths.push(`<path d="${d}" fill="none" stroke="#888" stroke-width="1"/>`);
+  });
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle;margin-right:4px">` + paths.join('') + '</svg>';
 }
 
-function getChecked(n) {
-  return [...document.querySelectorAll(`input[name="${n}"]:checked`)].map((e) => +e.value);
-}
-
-function updateSparklines() {
+function updateSparklines(gr) {
   const lc = document.getElementById('leftYAxis');
   const rc = document.getElementById('rightYAxis');
-  const lSel = getChecked('L');
-  const rSel = getChecked('R');
   lc.innerHTML = '';
   rc.innerHTML = '';
   State.columns.forEach((col, idx) => {
     if (!col.text) {
-      const s = ''; // sparkline(idx);
-      lc.innerHTML += `<label>${s}<input type="checkbox" name="L" value="${col.key}"${lSel.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
-      rc.innerHTML += `<label>${s}<input type="checkbox" name="R" value="${col.key}"${rSel.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
+      const s = sparkline(idx);
+      lc.innerHTML += `<label>${s}<input type="checkbox" name="L" value="${col.key}"${gr.left.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
+      rc.innerHTML += `<label>${s}<input type="checkbox" name="R" value="${col.key}"${gr.right.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
     }
   });
 }
 
 function showGraphDialog() {
+  const gr = State.graphs[0];
   const xAxis = document.getElementById('xAxis');
   const cat = document.getElementById('categoryValue');
   xAxis.innerHTML = '';
   cat.innerHTML = '<option value="">None</option>';
   State.columns.forEach((col, idx) => {
     if (!col.text) {
-      xAxis.add(new Option(col.key, idx));
+      xAxis.add(new Option(col.key, col.key, col.key === gr.x, col.key == gr.x));
     }
     if (col.unique) {
-      cat.add(new Option(col.key, idx));
+      cat.add(new Option(col.key, col.key, col.key == gr.category, col.key == gr.category));
     }
   });
-  updateSparklines();
+  updateSparklines(gr);
   document.getElementById('graph-modal').classList.add('open');
 }
 
@@ -439,8 +450,144 @@ function hideGraphDialog() {
 
 function applyGraphOptions() {
   hideGraphDialog();
-  // drawPlot();
-  // DWM::
+  const gr = State.graphs[0];
+  gr.x = document.getElementById('xAxis').value;
+  gr.category = document.getElementById('categoryValue').value;
+  gr.left = [...document.querySelectorAll('#leftYAxis input[type="checkbox"]:checked')].map((c) => c.value);
+  gr.right = [...document.querySelectorAll('#rightYAxis input[type="checkbox"]:checked')].map((c) => c.value);
+  drawGraph(0);
+}
+
+function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats, catCol, catName) {
+  let yAll, text, yAll2;
+  let hovertemplate = '%{y:.5g}';
+  if (!State.columnDict[ykey].text) {
+    yAll = log.data.map((r) => parseFloat(r[ykey]));
+    if (yAll.every((r) => r >= -10 && r <= 380) && yAll.some((r, ridx) => ridx && Math.abs(r - yAll[ridx - 1]) > 330)) {
+      yAll2 = yAll.slice();
+      let first = true;
+      yAll.forEach((r, ridx) => {
+        let transition;
+        if (ridx && Math.abs(r - (first ? yAll : yAll2)[ridx - 1]) > 330) {
+          first = !first;
+          transition = true;
+        }
+        (first ? yAll2 : yAll)[ridx] = null;
+        if (transition) {
+          if (yAll[ridx] === null) {
+            yAll[ridx] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx] - 360 : yAll2[ridx] + 360;
+            yAll2[ridx - 1] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx - 1] - 360 : yAll[ridx - 1] + 360;
+          } else {
+            yAll2[ridx] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx] - 360 : yAll[ridx] + 360;
+            yAll[ridx - 1] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx - 1] - 360 : yAll2[ridx - 1] + 360;
+          }
+        }
+      });
+    }
+  } else {
+    return;
+  }
+  const dash = dashList[traceIdx % dashList.length];
+  const baseColor = PALETTE[traceIdx % PALETTE.length];
+  [yAll, yAll2].forEach((yVals) => {
+    if (yVals === undefined) {
+      return;
+    }
+    if (!cats) {
+      traces.push({
+        x: xVals,
+        y: yVals,
+        name: ykey + suffix,
+        yaxis,
+        text: text,
+        mode: 'lines',
+        line: { dash, width: 2, color: baseColor },
+        hovertemplate: hovertemplate,
+      });
+    } else {
+      const segs = [];
+      let cur = { cat: cats[0], start: 0 };
+      for (let i = 1; i < cats.length; i++) {
+        if (cats[i] !== cur.cat) {
+          cur.end = i - 1;
+          segs.push(cur);
+          cur = { cat: cats[i], start: i };
+        }
+      }
+      cur.end = cats.length - 1;
+      segs.push(cur);
+      segs.forEach((seg, segidx) => {
+        const start = segidx > 0 ? seg.start - 1 : seg.start;
+        const xf = xVals.slice(start, seg.end + 1);
+        const yf = yVals.slice(start, seg.end + 1);
+        const cf = cats.slice(start, seg.end + 1);
+        traces.push({
+          x: xf,
+          y: yf,
+          name: ykey + suffix,
+          showlegend: segidx === 0,
+          legendgroup: ykey + yaxis,
+          yaxis,
+          mode: 'lines',
+          line: { dash, width: 2, color: catCol[seg.cat] },
+          customdata: cf.map((c) => [catName[c]]),
+          hovertemplate: hovertemplate + ' [%{customdata[0]}]',
+        });
+      });
+    }
+  });
+}
+
+function drawGraph(graphNumber) {
+  const gr = State.graphs[graphNumber];
+  if (!gr.x || !gr.left.length + gr.right.length) {
+    document.getElementById('graph-plot').innerHTML = '';
+    return;
+  }
+  const logs = State.sortedLogs.filter((log) => log.selected);
+  const traces = [];
+  logs.forEach((log) => {
+    const xVals = log.data.map((r) => {
+      const v = r[gr.x];
+      return isFinite(+v) ? +v : v;
+    });
+    let cats;
+    let catCol = {};
+    let catName;
+    if (gr.category) {
+      catName = Object.keys(State.columnDict[gr.category].unique).sort();
+      const catDict = Object.fromEntries(catName.map((s, i) => [s, i]));
+      catName.forEach((c, i) => (catCol[c] = PALETTE[i % PALETTE.length]));
+      cats = log.data.map((r) => catDict[r[gr.category]]);
+    }
+    gr.left.forEach((ykey, idx) => {
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats, catCol, catName);
+    });
+    gr.right.forEach((ykey, idx) => {
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y2', RDASH, ' (R)', traces, cats, catCol, catName);
+    });
+  });
+
+  Plotly.react(
+    'graph-plot',
+    traces,
+    {
+      margin: { l: 80, r: 80, t: 30, b: 50 },
+      hovermode: 'x unified',
+      xaxis: {
+        title: State.columns[gr.x],
+        showspikes: true,
+        spikemode: 'across',
+        spikethickness: 1,
+        spikecolor: '#999',
+        spikedash: 'solid',
+      },
+      yaxis: { title: gr.left.join(', ') },
+      yaxis2: { title: gr.right.join(', '), overlaying: 'y', side: 'right', showgrid: false },
+      legend: { orientation: 'h', y: 1.05, x: 0.5, xanchor: 'center' },
+    },
+    { responsive: true },
+  );
 }
 
 function addField() {
@@ -604,6 +751,7 @@ function updateLogs(skipRerender) {
     State.track.data(State.sortedLogs);
   }
   categorizeColumns();
+  drawGraph(0);
   // DWM::
   console.log(State); // DWM::
   updateNow();
@@ -619,7 +767,26 @@ function updateNow() {
     updateRobotImages();
     State.track.draw();
   }
+  updateGraphCursor();
   // DWM::
+}
+
+function updateGraphCursor() {
+  const gr = State.graphs[0];
+  let applied;
+  if (gr.x === 'time') {
+    try {
+      let layout = $('#graph-plot')[0]._fullLayout;
+      let x = layout.xaxis.l2p(State.time) + layout.margin.l;
+      if (isFinite(x) && x >= 0) {
+        $('#graph-cursor').css('left', (x - 1) + 'px');
+        applied = true;
+      }
+    } catch (err) {
+      applied = false;
+    }
+  }
+  $('#graph-cursor').toggleClass('hidden', !applied);
 }
 
 function updateTelemetry() {
@@ -687,29 +854,34 @@ function telemetryKeys() {
 function categorizeColumns() {
   const columns = {};
   State.sortedLogs.forEach((log) => {
-    Object.keys(log.keys).sort((a, b) => log.keys[a] - log.keys[b]).forEach((key) => {
-      if (!columns[key]) {
-        columns[key] = { key: key, unique: {}, text: false, pos: Object.keys(columns).length };
-      }
-      for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
-        const row = log.data[r];
-        const val = row[key];
-        if (val !== undefined && val !== null && val !== '') {
-          columns[key].any = true;
-          if (!isFinite(val)) {
-            columns[key].text = true;
-          }
-          if (columns[key].unique !== undefined) {
-            columns[key].unique[val] = true;
-            if (Object.keys(columns[key].unique).length > 50) {
-              columns[key].unique = undefined;
+    Object.keys(log.keys)
+      .sort((a, b) => log.keys[a] - log.keys[b])
+      .forEach((key) => {
+        if (!columns[key]) {
+          columns[key] = { key: key, unique: {}, text: false, pos: Object.keys(columns).length };
+        }
+        for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
+          const row = log.data[r];
+          const val = row[key];
+          if (val !== undefined && val !== null && val !== '') {
+            columns[key].any = true;
+            if (!isFinite(val)) {
+              columns[key].text = true;
+            }
+            if (columns[key].unique !== undefined) {
+              columns[key].unique[val] = true;
+              if (Object.keys(columns[key].unique).length > 50) {
+                columns[key].unique = undefined;
+              }
             }
           }
         }
-      }
-    });
+      });
   });
-  State.columns = Object.values(columns).sort((a, b) => a.pos - b.pos).filter(col => col.any);
+  State.columnDict = columns;
+  State.columns = Object.values(columns)
+    .sort((a, b) => a.pos - b.pos)
+    .filter((col) => col.any);
 }
 
 function addRobotImage(quadData, idx, pos, rnum) {
@@ -846,7 +1018,6 @@ function loadFiles(evt) {
 document.addEventListener('DOMContentLoaded', initGrid);
 
 // TODO:
-// graph
 // realign tracks
 // multiple graphs
 // video
