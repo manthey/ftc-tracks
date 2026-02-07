@@ -217,6 +217,7 @@ function fitGrid(allowInEditMode) {
   if (State.map) {
     State.map.size({ width: State.map.node().width(), height: State.map.node().height() });
   }
+  Plotly.Plots.resize(document.getElementById('graph-plot'));
 }
 
 function toggleEdit(editMode) {
@@ -591,6 +592,7 @@ function drawGraph(graphNumber) {
     'graph-plot',
     traces,
     {
+      autosize: true,
       margin: { l: 80, r: 80, t: 50, b: 30 },
       hovermode: 'x unified',
       xaxis: {
