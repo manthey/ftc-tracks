@@ -525,7 +525,7 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
   }
   const dash = dashList[traceIdx % dashList.length];
   const baseColor = PALETTE[traceIdx % PALETTE.length];
-  [yAll, yAll2].forEach((yVals) => {
+  [yAll, yAll2].forEach((yVals, yAllIdx) => {
     if (yVals === undefined) {
       return;
     }
@@ -534,6 +534,8 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
         x: xVals,
         y: yVals,
         name: ykey + suffix,
+        showlegend: yAllIdx === 0,
+        legendgroup: ykey + yaxis,
         yaxis,
         text: text,
         mode: 'lines',
@@ -561,7 +563,7 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
           x: xf,
           y: yf,
           name: ykey + suffix,
-          showlegend: segidx === 0,
+          showlegend: segidx === 0 && yAllIdx === 0,
           legendgroup: ykey + yaxis,
           yaxis,
           mode: 'lines',
