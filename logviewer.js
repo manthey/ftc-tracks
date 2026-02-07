@@ -4,6 +4,7 @@ const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2,
 const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
 const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+const PART_COLOR = {PRESENT: 1, PURPLE: 2, GREEN: 3};
 
 let Grid;
 let GridEditMode = false;
@@ -11,7 +12,12 @@ let Logs = {};
 const MapSettings = {
   field: ['decode2.png', 72, 72, 72, 72],
   robots: [['decodebot33dpi.png', 8.25, 8.75, 8.25, 8.75]],
-  parts: [['indexer5inraddark.png', 5, 5, 5, 5]],
+  parts: [
+    ['indexer5inraddark.png', 5.3, 5.3, 5.3, 5.3],
+    ['artifactgray.png', 2.5, 5.75, 2.5, -0.75],
+    ['artifactpurple.png', 2.5, 5.75, 2.5, -0.75],
+    ['artifactgreen.png', 2.5, 5.75, 2.5, -0.75],
+  ],
 };
 const State = {
   time: 0,
@@ -1002,10 +1008,12 @@ function updateRobotImages() {
       return;
     }
     let indexer;
+      let inventiry;
     if (tpos[idx].posidx !== undefined) {
       const ang = log.data[tpos[idx].posidx]['Field position 3'];
       tpos[idx].angle = -(ang * Math.PI) / 180;
       indexer = log.data[tpos[idx].posidx]['Indexer Position'];
+      inventory = log.data[tpos[idx].posidx]['Inventory'];
     } else {
       const ang0 = log.data[tpos[idx].posidx0]['Field position 3'];
       let ang1 = log.data[tpos[idx].posidx1]['Field position 3'];
@@ -1019,9 +1027,17 @@ function updateRobotImages() {
         indexer1 += indexer1 < indexer0 ? 360 : -360;
       }
       indexer = indexer0 * tpos[idx].factor0 + indexer1 * tpos[idx].factor1;
+      inventory = log.data[tpos[idx].posidx0]['Inventory'];
     }
     qidx = addRobotImage(State.quadData, qidx, tpos[idx], 0);
     qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, -indexer]);
+    if (inventory) {
+      inventory.split(' ').forEach((inv, invidx) => {
+        if (PART_COLOR[inv] !== undefined) {
+          qidx = addPartImage(State.quadData, qidx, tpos[idx], [PART_COLOR[inv], 0, 1.75, 180 + 120 * invidx - indexer]);
+        }
+      });
+    }
   });
   if (qidx === 1) {
     quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = { x: -1000, y: -1000 };
