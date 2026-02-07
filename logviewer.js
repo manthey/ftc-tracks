@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'gs-dashboard';
 const GRID_COLS = 12;
-const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.5, 0: 1, 1: 2, 2: 5, 3: 10, 4: 20 };
+const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2, '-1': 0.5, 0: 1, 1: 2, 2: 5, 3: 10, 4: 20, 5: 50, 6: 100 };
 const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
 const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
@@ -19,7 +19,7 @@ const State = {
   continuous: false,
   baseTime: 0, // the scrubber time when the referenceTime references
   referenceTime: Date.now(),
-  graphs: [{ x: 'time', category: undefined, left: [], right: [] }],
+  graphs: [{ x: 'time', category: undefined, left: ['Flywheel velocity'], right: ['Indexer Position'] }],
 };
 
 const DEFAULT_LAYOUT = [
@@ -495,11 +495,16 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
         (first ? yAll2 : yAll)[ridx] = null;
         if (transition) {
           if (yAll[ridx] === null) {
-            yAll[ridx] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx] - 360 : yAll2[ridx] + 360;
-            yAll2[ridx - 1] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx - 1] - 360 : yAll[ridx - 1] + 360;
+            let val = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx] - 360 : yAll2[ridx] + 360;
+            yAll[ridx] = val >= -30 && val <= 390 && isFinite(val) ? val : yAll[ridx];
+            val = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx - 1] - 360 : yAll[ridx - 1] + 360;
+            yAll2[ridx - 1] = val >= -30 && val <= 390 && isFinite(val) ? val : yAll2[ridx - 1];
           } else {
-            yAll2[ridx] = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx] - 360 : yAll[ridx] + 360;
-            yAll[ridx - 1] = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx - 1] - 360 : yAll2[ridx - 1] + 360;
+            let val = yAll[ridx] > yAll2[ridx - 1] ? yAll[ridx] - 360 : yAll[ridx] + 360;
+            yAll2[ridx] = val >= -30 && val <= 390 && isFinite(val) ? val : yAll2[ridx];
+
+            val = yAll2[ridx] > yAll[ridx - 1] ? yAll2[ridx - 1] - 360 : yAll2[ridx - 1] + 360;
+            yAll[ridx - 1] = val >= -30 && val <= 390 && isFinite(val) ? val : yAll2[ridx];
           }
         }
       });
