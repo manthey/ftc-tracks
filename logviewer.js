@@ -214,6 +214,9 @@ function fitGrid(allowInEditMode) {
   Grid.cellHeight(cellH);
   tiles.forEach((tile) => Grid.update(tile.el, { x: tile.x, y: tile.y, w: tile.w, h: tile.h }));
   Grid.batchUpdate(false);
+  if (State.map) {
+    State.map.size({ width: State.map.node().width(), height: State.map.node().height() });
+  }
 }
 
 function toggleEdit(editMode) {
@@ -281,9 +284,9 @@ function resetGrid() {
   const tiles = [];
   items.forEach((el) => {
     const node = el.gridstackNode;
-    const dl = DEFAULT_LAYOUT.filter(l => l.id === node.id)[0];
+    const dl = DEFAULT_LAYOUT.filter((l) => l.id === node.id)[0];
     if (dl) {
-      Grid.update(el, {x: dl.x, y: dl.y, w: dl.w, h: dl.h});
+      Grid.update(el, { x: dl.x, y: dl.y, w: dl.w, h: dl.h });
     }
   });
   fitGrid(true);
