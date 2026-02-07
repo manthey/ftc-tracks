@@ -19,7 +19,7 @@ const State = {
   continuous: false,
   baseTime: 0, // the scrubber time when the referenceTime references
   referenceTime: Date.now(),
-  graphs: [{ x: 'time', category: undefined, left: [], right: [] }],
+  graphs: [{ x: 'time', category: undefined, left: ['Flywheel velocity'], right: ['Indexer Position'] }],
 };
 
 const DEFAULT_LAYOUT = [
