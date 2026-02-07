@@ -593,7 +593,7 @@ function drawGraph(graphNumber) {
     traces,
     {
       autosize: true,
-      margin: { l: 80, r: 80, t: 50, b: 30 },
+      margin: { l: 80, r: 80, t: 30, b: 30 },
       hovermode: 'x unified',
       xaxis: {
         title: State.columns[gr.x],
@@ -605,7 +605,7 @@ function drawGraph(graphNumber) {
       },
       yaxis: { title: gr.left.join(', ') },
       yaxis2: { title: gr.right.join(', '), overlaying: 'y', side: 'right', showgrid: false },
-      legend: { orientation: 'h', y: 1.05, x: 0.5, xanchor: 'center' },
+      legend: { orientation: 'h', y: 1, x: 0.5, xanchor: 'center', yanchor: 'bottom' },
     },
     { responsive: true },
   );
