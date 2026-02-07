@@ -24,8 +24,8 @@ const State = {
 
 const DEFAULT_LAYOUT = [
   { x: 0, y: 0, w: 4, h: 2, id: 'control' },
-  { x: 0, y: 2, w: 4, h: 9, id: 'telemetry' },
-  { x: 0, y: 11, w: 4, h: 1, id: 'playback' },
+  { x: 0, y: 2, w: 4, h: 1, id: 'playback' },
+  { x: 0, y: 3, w: 4, h: 9, id: 'telemetry' },
   { x: 4, y: 0, w: 8, h: 4, id: 'graph' },
   { x: 4, y: 4, w: 8, h: 8, id: 'field' },
 ];
@@ -222,6 +222,7 @@ function toggleEdit(editMode) {
   Grid.enableResize(GridEditMode);
   $('#editgrid').toggleClass('hidden', GridEditMode);
   $('#lockgrid').toggleClass('hidden', !GridEditMode);
+  $('#resetgrid').toggleClass('hidden', !GridEditMode);
   showAddButtons();
   Grid.getGridItems().forEach((el) => {
     $('.close-btn', el).toggleClass('hidden', !GridEditMode);
@@ -275,6 +276,19 @@ function removePanel(id) {
   }
 }
 
+function resetGrid() {
+  const items = Grid.getGridItems();
+  const tiles = [];
+  items.forEach((el) => {
+    const node = el.gridstackNode;
+    const dl = DEFAULT_LAYOUT.filter(l => l.id === node.id)[0];
+    if (dl) {
+      Grid.update(el, {x: dl.x, y: dl.y, w: dl.w, h: dl.h});
+    }
+  });
+  fitGrid(true);
+}
+
 function initGrid() {
   State.isdark = !!window?.matchMedia?.('(prefers-color-scheme:dark)')?.matches;
   const state = loadState();
@@ -302,6 +316,8 @@ function initGrid() {
   document.body.addEventListener('click', (e) => {
     if (e.target.id === 'editgrid' || e.target.id === 'lockgrid') {
       toggleEdit(e.target.id === 'editgrid');
+    } else if (e.target.id === 'resetgrid') {
+      resetGrid();
     } else if (e.target.classList.contains('close-btn')) {
       removePanel(e.target.dataset.id);
     } else if (e.target.classList.contains('addgrid')) {
@@ -568,7 +584,6 @@ function drawGraph(graphNumber) {
     });
   });
 
-  console.log(traces);
   Plotly.react(
     'graph-plot',
     traces,
@@ -780,7 +795,7 @@ function updateGraphCursor() {
       let layout = $('#graph-plot')[0]._fullLayout;
       let x = layout.xaxis.l2p(State.time) + layout.margin.l;
       if (isFinite(x) && x >= 0) {
-        $('#graph-cursor').css('left', (x - 1) + 'px');
+        $('#graph-cursor').css('left', x - 1 + 'px');
         applied = true;
       }
     } catch (err) {
