@@ -400,7 +400,13 @@ function sparkline(yidx) {
     if (!log.selected) {
       return;
     }
-    let pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
+    let pts;
+    let cats = uniqueOrder(ykey);
+    if (cats) {
+      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]]}));
+    } else {
+      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
+    }
     if (pts.length < 2) {
       return;
     }
@@ -438,7 +444,7 @@ function updateSparklines(gr) {
   lc.innerHTML = '';
   rc.innerHTML = '';
   State.columns.forEach((col, idx) => {
-    if (!col.text) {
+    if (!col.text || col.unique) {
       const s = sparkline(idx);
       lc.innerHTML += `<label>${s}<input type="checkbox" name="L" value="${col.key}"${gr.left.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
       rc.innerHTML += `<label>${s}<input type="checkbox" name="R" value="${col.key}"${gr.right.includes(col.key) ? ' checked' : ''}> ${col.key}</label>`;
@@ -478,7 +484,7 @@ function applyGraphOptions() {
   drawGraph(0);
 }
 
-function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats, catCol, catName) {
+function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats) {
   let yAll, text, yAll2;
   let hovertemplate = '%{y:.5g}';
   if (!State.columnDict[ykey].text) {
@@ -509,6 +515,11 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
         }
       });
     }
+  } else if (State.columnDict[ykey].unique) {
+    const cats = uniqueOrder(ykey);
+    yAll = log.data.map((r) => cats.order[r[ykey]]);
+    text = log.data.map((r) => r[ykey]);
+    hovertemplate = '%{text}';
   } else {
     return;
   }
@@ -531,21 +542,21 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
       });
     } else {
       const segs = [];
-      let cur = { cat: cats[0], start: 0 };
-      for (let i = 1; i < cats.length; i++) {
-        if (cats[i] !== cur.cat) {
+      let cur = { cat: cats.values[0], start: 0 };
+      for (let i = 1; i < cats.values.length; i++) {
+        if (cats.values[i] !== cur.cat) {
           cur.end = i - 1;
           segs.push(cur);
-          cur = { cat: cats[i], start: i };
+          cur = { cat: cats.values[i], start: i };
         }
       }
-      cur.end = cats.length - 1;
+      cur.end = cats.values.length - 1;
       segs.push(cur);
       segs.forEach((seg, segidx) => {
         const start = segidx > 0 ? seg.start - 1 : seg.start;
         const xf = xVals.slice(start, seg.end + 1);
         const yf = yVals.slice(start, seg.end + 1);
-        const cf = cats.slice(start, seg.end + 1);
+        const cf = cats.values.slice(start, seg.end + 1);
         traces.push({
           x: xf,
           y: yf,
@@ -554,13 +565,23 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
           legendgroup: ykey + yaxis,
           yaxis,
           mode: 'lines',
-          line: { dash, width: 2, color: catCol[seg.cat] },
-          customdata: cf.map((c) => [catName[c]]),
+          line: { dash, width: 2, color: cats.colors[seg.cat] },
+          customdata: cf.map((c) => [cats.names[c]]),
           hovertemplate: hovertemplate + ' [%{customdata[0]}]',
         });
       });
     }
   });
+}
+
+function uniqueOrder(key) {
+    if (!State.columnDict[key] || !State.columnDict[key].unique) {
+        return;
+    }
+    const uni = {};
+    uni.names = Object.keys(State.columnDict[key].unique).sort();
+    uni.order = Object.fromEntries(uni.names.map((s, i) => [s, i]));
+    return uni;
 }
 
 function drawGraph(graphNumber) {
@@ -576,20 +597,17 @@ function drawGraph(graphNumber) {
       const v = r[gr.x];
       return isFinite(+v) ? +v : v;
     });
-    let cats;
-    let catCol = {};
-    let catName;
-    if (gr.category) {
-      catName = Object.keys(State.columnDict[gr.category].unique).sort();
-      const catDict = Object.fromEntries(catName.map((s, i) => [s, i]));
-      catName.forEach((c, i) => (catCol[c] = PALETTE[i % PALETTE.length]));
-      cats = log.data.map((r) => catDict[r[gr.category]]);
+    let cats = uniqueOrder(gr.category);
+    if (cats) {
+        cats.colors = {};
+        cats.names.forEach((c, i) => (cats.colors[c] = PALETTE[i % PALETTE.length]));
+        cats.values = log.data.map((r) => cats.order[r[gr.category]]);
     }
     gr.left.forEach((ykey, idx) => {
-      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats, catCol, catName);
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats);
     });
     gr.right.forEach((ykey, idx) => {
-      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y2', RDASH, ' (R)', traces, cats, catCol, catName);
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y2', RDASH, ' (R)', traces);
     });
   });
 
@@ -804,7 +822,7 @@ function updateGraphCursor() {
     try {
       let layout = $('#graph-plot')[0]._fullLayout;
       let x = layout.xaxis.l2p(State.time) + layout.margin.l;
-      if (isFinite(x) && x >= 0) {
+      if (isFinite(x) && State.time >= 0) {
         $('#graph-cursor').css('left', x - 1 + 'px');
         applied = true;
       }
