@@ -51,8 +51,7 @@ class LogRecord {
     let record;
     let t0 = undefined;
     let count = 0;
-    for (const rawline of rawdata.split(/\r?\n/)) {
-      const line = this.parseLine(rawline);
+    for (const line of Papa.parse(rawdata).data) {
       if (line.length < 5) {
         continue;
       }
@@ -109,31 +108,6 @@ class LogRecord {
     if (this.data.length < 2) {
       this.data = undefined;
     }
-  }
-
-  parseLine(line) {
-    const fields = [];
-    let currentField = '';
-    let insideQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      const nextChar = line[i + 1];
-      if (char === '"') {
-        if (insideQuotes && nextChar === '"') {
-          currentField += '"';
-          i++;
-        } else {
-          insideQuotes = !insideQuotes;
-        }
-      } else if (char === ',' && !insideQuotes) {
-        fields.push(currentField);
-        currentField = '';
-      } else {
-        currentField += char;
-      }
-    }
-    fields.push(currentField);
-    return fields;
   }
 
   getIndex(time) {
@@ -915,10 +889,11 @@ function categorizeColumns() {
         for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
           const row = log.data[r];
           const val = row[key];
-          if (val !== undefined && val !== null && val !== '') {
+          if (val !== undefined && val !== null && val !== '' && val !== 'NaN') {
             columns[key].any = true;
             if (!isFinite(val)) {
               columns[key].text = true;
+                if (key == 'Distance Left') { console.log(val); }
             }
             if (columns[key].unique !== undefined) {
               columns[key].unique[val] = true;
