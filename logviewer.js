@@ -915,7 +915,7 @@ function categorizeColumns() {
         for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
           const row = log.data[r];
           const val = row[key];
-          if (val !== undefined && val !== null && val !== '') {
+          if (val !== undefined && val !== null && val !== '' && val !== 'NaN') {
             columns[key].any = true;
             if (!isFinite(val)) {
               columns[key].text = true;
