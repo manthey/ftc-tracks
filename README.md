@@ -5,6 +5,8 @@ Plot autonomous paths on a map.
 
 See https://manthey.github.io/ftc-tracks
 
+See https://manthey.github.io/ftc-tracks/logviewer.html
+
 See https://manthey.github.io/ftc-tracks/csvviewer.html
 
 See https://manthey.github.io/ftc-tracks/pidfdemo.html
