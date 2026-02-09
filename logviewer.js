@@ -4,7 +4,7 @@ const SPEED_VALUES = { '-6': 0.01, '-5': 0.02, '-4': 0.05, '-3': 0.1, '-2': 0.2,
 const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
 const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
-const PART_COLOR = {PRESENT: 1, PURPLE: 2, GREEN: 3};
+const PART_COLOR = { PRESENT: 1, PURPLE: 2, GREEN: 3 };
 
 let Grid;
 let GridEditMode = false;
@@ -383,7 +383,7 @@ function sparkline(yidx) {
     let pts;
     let cats = uniqueOrder(ykey);
     if (cats) {
-      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]]}));
+      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]] }));
     } else {
       pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
     }
@@ -557,13 +557,13 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
 }
 
 function uniqueOrder(key) {
-    if (!State.columnDict[key] || !State.columnDict[key].unique) {
-        return;
-    }
-    const uni = {};
-    uni.names = Object.keys(State.columnDict[key].unique).sort();
-    uni.order = Object.fromEntries(uni.names.map((s, i) => [s, i]));
-    return uni;
+  if (!State.columnDict[key] || !State.columnDict[key].unique) {
+    return;
+  }
+  const uni = {};
+  uni.names = Object.keys(State.columnDict[key].unique).sort();
+  uni.order = Object.fromEntries(uni.names.map((s, i) => [s, i]));
+  return uni;
 }
 
 function drawGraph(graphNumber) {
@@ -581,9 +581,9 @@ function drawGraph(graphNumber) {
     });
     let cats = uniqueOrder(gr.category);
     if (cats) {
-        cats.colors = {};
-        cats.names.forEach((c, i) => (cats.colors[c] = PALETTE[i % PALETTE.length]));
-        cats.values = log.data.map((r) => cats.order[r[gr.category]]);
+      cats.colors = {};
+      cats.names.forEach((c, i) => (cats.colors[c] = PALETTE[i % PALETTE.length]));
+      cats.values = log.data.map((r) => cats.order[r[gr.category]]);
     }
     gr.left.forEach((ykey, idx) => {
       addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats);
@@ -893,7 +893,9 @@ function categorizeColumns() {
             columns[key].any = true;
             if (!isFinite(val)) {
               columns[key].text = true;
-                if (key == 'Distance Left') { console.log(val); }
+              if (key == 'Distance Left') {
+                console.log(val);
+              }
             }
             if (columns[key].unique !== undefined) {
               columns[key].unique[val] = true;
@@ -983,7 +985,7 @@ function updateRobotImages() {
       return;
     }
     let indexer;
-      let inventiry;
+    let inventory;
     if (tpos[idx].posidx !== undefined) {
       const ang = log.data[tpos[idx].posidx]['Field position 3'];
       tpos[idx].angle = -(ang * Math.PI) / 180;
