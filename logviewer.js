@@ -11,7 +11,10 @@ let GridEditMode = false;
 let Logs = {};
 const MapSettings = {
   field: ['decode2.png', 72, 72, 72, 72],
-  robots: [['decodebot33dpi.png', 8.25, 8.75, 8.25, 8.75]],
+  robots: [
+    ['decodebot33dpi.png', 8.25, 8.75, 8.25, 8.75],
+    ['decodebot2.png', 8.25, 8.75, 8.25, 8.75],
+  ],
   parts: [
     ['indexer5inraddark.png', 5.3, 5.3, 5.3, 5.3],
     ['artifactgray.png', 2.5, 5.75, 2.5, -0.75],
@@ -1006,7 +1009,7 @@ function updateRobotImages() {
       indexer = indexer0 * tpos[idx].factor0 + indexer1 * tpos[idx].factor1;
       inventory = log.data[tpos[idx].posidx0]['Inventory'];
     }
-    qidx = addRobotImage(State.quadData, qidx, tpos[idx], 0);
+    qidx = addRobotImage(State.quadData, qidx, tpos[idx], log.data[0]["IMU Octoquad"] !== undefined ? 1 : 0);
     qidx = addPartImage(State.quadData, qidx, tpos[idx], [0, 0, 1.75, -indexer]);
     if (inventory) {
       inventory.split(' ').forEach((inv, invidx) => {
