@@ -82,9 +82,15 @@ def main():
             out.write(f"file '{path}'\n")
             out.write(f'duration 0.016666\n')
         subprocess.run([
+            # ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
+            # '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+            # '-pix_fmt', 'yuv420p', '-vsync', 'vfr', args.output
             ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
+            '-vf', 'fps=30',
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-            '-pix_fmt', 'yuv420p', '-vsync', 'vfr', args.output
+            '-pix_fmt', 'yuv420p',
+            '-g', '30', '-keyint_min', '30', '-sc_threshold', '0',
+            args.output
         ], check=True)
 
 if __name__ == '__main__':

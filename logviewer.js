@@ -29,6 +29,7 @@ const State = {
   baseTime: 0, // the scrubber time when the referenceTime references
   referenceTime: Date.now(),
   graphs: [{ x: 'time', category: undefined, left: ['Flywheel velocity'], right: ['Indexer Position'] }],
+  videos: {},
 };
 
 const DEFAULT_LAYOUT = [
@@ -36,7 +37,9 @@ const DEFAULT_LAYOUT = [
   { x: 0, y: 2, w: 4, h: 1, id: 'playback' },
   { x: 0, y: 3, w: 4, h: 9, id: 'telemetry' },
   { x: 4, y: 0, w: 8, h: 4, id: 'graph' },
-  { x: 4, y: 4, w: 8, h: 8, id: 'field' },
+  { x: 4, y: 4, w: 5, h: 8, id: 'field' },
+  { x: 9, y: 4, w: 3, h: 4, id: 'video' },
+  { x: 9, y: 8, w: 3, h: 4, id: 'video-2' },
 ];
 
 class LogRecord {
@@ -222,8 +225,12 @@ function showAddButtons() {
   if (!GridEditMode) {
     $('.addgrid').addClass('hidden');
   } else {
-    // enable to show video panels                   $('#addvideo.addgrid').removeClass('hidden');
-    // switch to this to have any number of graphs   $('#addgraph.addgrid').removeClass('hidden');
+    $('#addtelemetry.addgrid').removeClass('hidden');
+    $('#addfield.addgrid').removeClass('hidden');
+    $('#addgraph.addgrid').removeClass('hidden');
+    $('#addvideo.addgrid').removeClass('hidden');
+    // switch to this to have any number of graphs
+    // $('#addgraph.addgrid').removeClass('hidden');
     $('#addgraph.addgrid').toggleClass(
       'hidden',
       Grid.getGridItems().some((el) => el.gridstackNode.id === 'graph'),
@@ -257,6 +264,14 @@ function addPanel(id) {
 function removePanel(id) {
   const el = document.querySelector(`[gs-id="${id}"]`);
   if (el) {
+    // Clean up video resources
+    if (State.videos && State.videos[id]) {
+      const videoInfo = State.videos[id];
+      if (videoInfo.fileUrl) {
+        URL.revokeObjectURL(videoInfo.fileUrl);
+      }
+      delete State.videos[id];
+    }
     Grid.removeWidget(el);
     showAddButtons();
     saveState();
@@ -298,8 +313,18 @@ function initGrid() {
       id: item.id,
     });
     el.querySelector('.grid-stack-item-content').innerHTML = buildContent(item.id);
+    if (item.id.startsWith('video')) {
+      initVideoTile(item.id);
+    }
   });
   Grid.on('change', saveState);
+  // Initialize video tiles when added to grid
+  Grid.on('added', (el) => {
+    const id = el.gridstackNode.id;
+    if (id.startsWith('video')) {
+      initVideoTile(id);
+    }
+  });
   document.body.addEventListener('click', (e) => {
     if (e.target.id === 'editgrid' || e.target.id === 'lockgrid') {
       toggleEdit(e.target.id === 'editgrid');
@@ -798,6 +823,7 @@ function updateNow() {
   }
   updateGraphCursor();
   // DWM::
+  syncVideos(State.time);
 }
 
 function updateGraphCursor() {
@@ -1057,16 +1083,104 @@ function loadFiles(evt) {
   }
 }
 
+function initVideoTile(tileId) {
+  const panelEl = document.querySelector(`[gs-id="${tileId}"] .grid-stack-item-content`);
+  if (!panelEl) return;
+  if (State.videos[tileId]) {
+    return;
+  }
+  const fileInput = panelEl.querySelector('.video-file-input');
+  const videoContainer = panelEl.querySelector('.video-container');
+  if (!fileInput || !videoContainer) {
+    console.error(`Video tile ${tileId} missing required elements`);
+    return;
+  }
+  let video = videoContainer.querySelector('video');
+  if (!video) {
+    video = document.createElement('video');
+    video.playsinline = true;
+    video.webkitPlaysinline = true;
+    video.loop = false;
+    video.style.objectFit = 'contain';
+    videoContainer.appendChild(video);
+  }
+  State.videos[tileId] = {
+    element: video,
+    fileUrl: null,
+    duration: NaN,
+    offset: 0,
+  };
+  fileInput.addEventListener('change', (e) => handleVideoFileSelect(e, tileId));
+}
+
+function handleVideoFileSelect(event, tileId) {
+  const file = event.target.files[0];
+  if (!file || !State.videos[tileId]) return;
+  const videoInfo = State.videos[tileId];
+  // Revoke old URL if exists
+  if (videoInfo.fileUrl) {
+    URL.revokeObjectURL(videoInfo.fileUrl);
+  }
+  videoInfo.fileUrl = URL.createObjectURL(file);
+  const video = videoInfo.element;
+  video.src = videoInfo.fileUrl;
+
+  // Set up metadata loaded listener to get video duration
+  const onLoadMetadata = () => {
+    videoInfo.duration = video.duration;
+    updateVideoOffset(tileId);
+  };
+  video.addEventListener('loadedmetadata', onLoadMetadata, { once: true });
+
+  // DWM::
+  videoInfo.lastSeekTime = -100;
+  video.load();
+}
+
+function updateVideoOffset(tileId) {
+  const videoInfo = State.videos[tileId];
+  if (!videoInfo || !isFinite(videoInfo.duration)) return;
+  const maxDuration = State.maxDuration || 0;
+  videoInfo.offset = videoInfo.duration - maxDuration;
+}
+
+function syncVideos(currentTime) {
+  if (!State.videos || Object.keys(State.videos).length === 0) return;
+  const maxDuration = State.maxDuration || 0;
+  Object.entries(State.videos).forEach(([tileId, videoInfo]) => {
+    updateVideoOffset(tileId);
+  });
+  Object.entries(State.videos).forEach(([tileId, videoInfo]) => {
+    if (!videoInfo.element) return;
+    if (!videoInfo.fileUrl || !isFinite(videoInfo.duration)) return;
+    const element = videoInfo.element;
+    let videoTime = currentTime + videoInfo.offset;
+    if (videoInfo.duration <= maxDuration) {
+      if (videoTime < 0) {
+        videoTime = 0;
+      }
+    } else {
+      videoTime = Math.min(videoTime, videoInfo.duration);
+    }
+    const clampedVideoTime = Math.max(0, Math.min(videoTime, videoInfo.duration));
+    const tolerance = 0.016;
+    const timeDiff = Math.abs(element.currentTime - clampedVideoTime);
+    const isSeekingOrLoading = !isFinite(element.currentTime) || element.seeking || element.readyState < 3;
+
+    if (timeDiff > tolerance && !isSeekingOrLoading) {
+      element.currentTime = clampedVideoTime;
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', initGrid);
 
 // TODO:
 // realign tracks
 // multiple graphs
-// video
-// multiple video
 // hide tracks
 // default size based on window aspect ratio
-// reset tile positions
+// reset tile positions based on window aspect ratio
 // visualize shoot lines
 // visualize april tag positions / bearings
 // overlay hood / flywheel settings

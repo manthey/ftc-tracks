@@ -293,3 +293,33 @@ control-group>input {
   width: 2px;
   z-index: 10;
 }
+#videopanel {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.video-container {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.video-file-input {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 100;
+  padding: 2px;
+}
+
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
