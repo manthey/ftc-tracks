@@ -63,6 +63,7 @@ def main():
     ffmpeg = FFmpeg().get_ffmpeg_bin()
     with tempfile.TemporaryDirectory() as tmp:
         frames, times = extract_frames(args.input, tmp)
+        # times[0] = 0
         concat = os.path.join(tmp, 'concat.txt')
         with open(concat, 'w') as out:
             out.write('ffconcat version 1.0\n')
@@ -76,6 +77,10 @@ def main():
                 if d <= 0:
                     d = 0.033333
                 out.write(f'duration {d:.6f}\n')
+            # repeat last frame
+            path = frames[-1].replace('\\', '/')
+            out.write(f"file '{path}'\n")
+            out.write(f'duration 0.016666\n')
         subprocess.run([
             ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
