@@ -93,7 +93,7 @@ def mjpeg_to_mp4(input_path, output_path):
             out.write(f'duration 0.016666\n')
         subprocess.run([
             ffmpeg_bin, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
-            '-vf', 'fps=30',
+            '-vf', 'fps=30,colorchannelmixer=0:0:1:0:0:1:0:0:1:0:0',
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-g', '30', '-keyint_min', '30', '-sc_threshold', '0',
@@ -118,38 +118,19 @@ def main():
     parser.add_argument(
         '--convert', '-c', action='store_true',
         help='Convert pulled videos.')
+    parser.add_argument(
+        '--noread', action='store_true',
+        help='Skip reading from the robot.')
     args = parser.parse_args()
     if args.convert and not args.video:
         print('error: --convert requires --video')
         return
-    mtp_scan()
-    pythoncom.CoInitialize()
-    shell = win32com.client.Dispatch('Shell.Application')
-    folder = shell.Namespace(17)
-    for part in args.source.replace('\\', '/').split('/'):
-        found = False
-        for item in folder.Items():
-            if item.Name == part:
-                folder = item.GetFolder
-                found = True
-                break
-        if not found:
-            print(f'Failed to find path component "{part}" in "{args.source}"')
-            pythoncom.CoUninitialize()
-            return
-    os.makedirs(args.dest, exist_ok=True)
-    dest = shell.Namespace(os.path.abspath(args.dest))
-    items = sorted((item.Name, item) for item in folder.Items())
-    for itemname, item in items:
-        dest_path = os.path.join(args.dest, item.Name)
-        if os.path.exists(dest_path):
-            continue
-        print(item.Name)
-        dest.CopyHere(item, 4 | 16 | 512 | 1024)
-    video_source = args.source.replace('telemetry', 'videos')
-    if args.video:
+    if not args.noread:
+        mtp_scan()
+        pythoncom.CoInitialize()
+        shell = win32com.client.Dispatch('Shell.Application')
         folder = shell.Namespace(17)
-        for part in video_source.replace('\\', '/').split('/'):
+        for part in args.source.replace('\\', '/').split('/'):
             found = False
             for item in folder.Items():
                 if item.Name == part:
@@ -157,28 +138,52 @@ def main():
                     found = True
                     break
             if not found:
-                print(f'Failed to find path component "{part}" in "{video_source}"')
+                print(f'Failed to find path component "{part}" in "{args.source}"')
                 pythoncom.CoUninitialize()
                 return
-        video_dest = os.path.join(args.dest, 'videos')
-        os.makedirs(video_dest, exist_ok=True)
-        dest = shell.Namespace(os.path.abspath(video_dest))
+        os.makedirs(args.dest, exist_ok=True)
+        dest = shell.Namespace(os.path.abspath(args.dest))
         items = sorted((item.Name, item) for item in folder.Items())
         for itemname, item in items:
-            dest_path = os.path.join(video_dest, item.Name)
+            dest_path = os.path.join(args.dest, item.Name)
             if os.path.exists(dest_path):
                 continue
             print(item.Name)
             dest.CopyHere(item, 4 | 16 | 512 | 1024)
-    pythoncom.CoUninitialize()
+        video_source = args.source.replace('telemetry', 'videos')
+        if args.video:
+            folder = shell.Namespace(17)
+            for part in video_source.replace('\\', '/').split('/'):
+                found = False
+                for item in folder.Items():
+                    if item.Name == part:
+                        folder = item.GetFolder
+                        found = True
+                        break
+                if not found:
+                    print(f'Failed to find path component "{part}" in "{video_source}"')
+                    pythoncom.CoUninitialize()
+                    return
+            video_dest = os.path.join(args.dest, 'videos')
+            os.makedirs(video_dest, exist_ok=True)
+            dest = shell.Namespace(os.path.abspath(video_dest))
+            items = sorted((item.Name, item) for item in folder.Items())
+            for itemname, item in items:
+                dest_path = os.path.join(video_dest, item.Name)
+                if os.path.exists(dest_path):
+                    continue
+                print(item.Name)
+                dest.CopyHere(item, 4 | 16 | 512 | 1024)
+        pythoncom.CoUninitialize()
     if args.convert:
         video_dir = os.path.join(args.dest, 'videos')
         for filename in os.listdir(video_dir):
             if filename.endswith('.mjpeg') or filename.endswith('.avi'):
                 input_path = os.path.join(video_dir, filename)
                 output_path = os.path.join(video_dir, os.path.splitext(filename)[0] + '.mp4')
-                print(f'Converting {filename} to MP4...')
-                mjpeg_to_mp4(input_path, output_path)
+                if not os.path.exists(output_path):
+                    print(f'Converting {filename} to MP4...')
+                    mjpeg_to_mp4(input_path, output_path)
 
 
 if __name__ == '__main__':
