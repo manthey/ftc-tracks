@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pywin32",
+#     "pyffmpeg",
+# ]
+# ///
 import argparse
 import os
 import subprocess
@@ -177,7 +185,7 @@ def main():
         pythoncom.CoUninitialize()
     if args.convert:
         video_dir = os.path.join(args.dest, 'videos')
-        for filename in os.listdir(video_dir):
+        for filename in sorted(os.listdir(video_dir)):
             if filename.endswith('.mjpeg') or filename.endswith('.avi'):
                 input_path = os.path.join(video_dir, filename)
                 output_path = os.path.join(video_dir, os.path.splitext(filename)[0] + '.mp4')
