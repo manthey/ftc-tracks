@@ -89,10 +89,38 @@ class LogRecord {
       }
       telemetry[key] = line[4];
       let nums = null;
+      let labels = null;
       if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
         const match = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
         if (match) {
           nums = match.split(/\s+/).map(parseFloat);
+        }
+        // when every number is prefixed by a word label (e.g. "LX 0.000" or
+        // "left: 0"), remember the labels so the exposed keys can use them
+        if (nums && nums.length > 1) {
+          const pairs = [];
+          let pending = null;
+          let ok = true;
+          line[4].trim().split(/\s+/).forEach((tok) => {
+            const lbl = tok.match(/^([A-Za-z]+)[:=]?$/);
+            if (lbl) {
+              if (pending !== null) {
+                ok = false;
+              }
+              pending = lbl[1];
+              return;
+            }
+            const n = parseFloat(tok);
+            if (isFinite(n)) {
+              pairs.push([pending, n]);
+              pending = null;
+            } else {
+              ok = false;
+            }
+          });
+          if (ok && pending === null && pairs.length === nums.length && pairs.every((p) => p[0] !== null) && new Set(pairs.map((p) => p[0])).size === pairs.length) {
+            labels = pairs.map((p) => p[0]);
+          }
         }
       }
       if (!nums || nums.length <= 1) {
@@ -100,7 +128,7 @@ class LogRecord {
         record[key] = nums?.length ? nums[0] : line[4];
       } else {
         nums.forEach((n, i) => {
-          const k = `${key} ${i + 1}`;
+          const k = labels ? `${key} ${labels[i]}` : `${key} ${i + 1}`;
           keys[k] = keys[k] || Object.keys(keys).length;
           record[k] = n;
         });
@@ -411,7 +439,7 @@ function sparkline(yidx) {
     let pts;
     let cats = uniqueOrder(ykey);
     if (cats) {
-      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]] }));
+      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]] })).filter((p) => isFinite(p.x) && isFinite(p.y));
     } else {
       pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
     }
