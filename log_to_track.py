@@ -5,7 +5,6 @@ import os
 import re
 import sys
 
-
 AprilTags = {
     20: {'x': -58.373, 'y': -55.643, 'z': 29.5, 'h': 54.050},
     24: {'x': -58.373, 'y': 55.643, 'z': 29.5, 'h': -54.050},
@@ -13,6 +12,7 @@ AprilTags = {
     # 22: {'x': -73, 'y': 0, 'z': 24, 'h': 0},
     # 23: {'x': -73, 'y': 0, 'z': 24, 'h': 0},
 }
+
 
 def april_adjust(basepose, repose, april, tagid, rbe):
     if basepose is None:
@@ -54,7 +54,7 @@ def april_adjust(basepose, repose, april, tagid, rbe):
 
 def logs_to_tracks(
         logdir, output, runs, realign=False, oldest=False, useTarget=False,
-        showIndexer=False, april=None, suffix=None):  # noqa
+        showIndexer=False, april=None, suffix=None):
     out = ["""Setting,fixedTimes,true
 Setting,stopTime,0
 Setting,showText,false
@@ -83,7 +83,7 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         t0 = None
         t = 0
         indexerPos = None
-        with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
+        with open(os.path.join(logdir, file), newline='', encoding='utf-8') as fptr:
             sys.stdout.write(file)
             sys.stdout.flush()
             reader = csv.reader(fptr)
@@ -133,7 +133,8 @@ Field,https://manthey.github.io/ftc-tracks/decode.png,72,72,72,72"""]
         track = tracks[number]['track']
         skip = runs and number not in runs
         if not skip:
-            sys.stderr.write(f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
+            sys.stderr.write(
+                f'{number:3d} {track[-1][0]:7.3f} {name} {"- skipped" if skip else ""}\n')
         if skip:
             continue
         out.append(f'Path,{name}-{number}{suffix or ""}')
@@ -174,7 +175,7 @@ def logs_to_excel(logdir, excelpath, csvpath, runs, stepSummary):  # noqa
         state = None
         keys = {}
         skip = runs and number not in runs
-        with open(os.path.join(logdir, file), 'r', newline='', encoding='utf-8') as fptr:
+        with open(os.path.join(logdir, file), newline='', encoding='utf-8') as fptr:
             reader = csv.reader(fptr)
             lastT = 0
             lastLoopT = None
@@ -321,5 +322,6 @@ if __name__ == '__main__':
             if '-' in p else [int(p)])}
     if opts.april:
         opts.april = [float(p) for p in opts.april.split(',')]
-    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest, opts.target, opts.indexer, opts.april, opts.suffix)
+    logs_to_tracks(opts.logdir, opts.output, runs, opts.realign, opts.oldest,
+                   opts.target, opts.indexer, opts.april, opts.suffix)
     logs_to_excel(opts.logdir, opts.excel, opts.csv, runs, opts.step)

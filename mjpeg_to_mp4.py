@@ -9,6 +9,7 @@ import argparse
 import os
 import subprocess
 import tempfile
+
 from pyffmpeg import FFmpeg
 
 
@@ -80,7 +81,7 @@ def main():
             # repeat last frame
             path = frames[-1].replace('\\', '/')
             out.write(f"file '{path}'\n")
-            out.write(f'duration 0.016666\n')
+            out.write('duration 0.016666\n')
         subprocess.run([
             # ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
             # '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
@@ -90,8 +91,9 @@ def main():
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-g', '30', '-keyint_min', '30', '-sc_threshold', '0',
-            args.output
+            args.output,
         ], check=True)
+
 
 if __name__ == '__main__':
     main()
