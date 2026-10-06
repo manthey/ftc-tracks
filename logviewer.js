@@ -14,6 +14,7 @@ const CATEGORY_ORDER = {
   'Blue hive state': ['UNKNOWN'],
   'Red hive state': ['UNKNOWN'],
 };
+const MAX_LEGEND_ENTRIES = 9;
 
 let Grid;
 let GridEditMode = false;
@@ -679,6 +680,7 @@ function drawGraph(graphNumber) {
       autosize: true,
       margin: { l: 80, r: 80, t: 30, b: 30 },
       hovermode: 'x unified',
+      showlegend: traces.filter((trace) => trace.showlegend !== false).length <= MAX_LEGEND_ENTRIES,
       xaxis: {
         title: State.columns[gr.x],
         showspikes: true,
@@ -891,7 +893,7 @@ function updateGraphCursor() {
   const gr = State.graphs[0];
   const gd = document.getElementById('graph-plot');
   let applied;
-  if (gr.x === 'time' && gd.data && gd.data.length) {
+  if (gr.x === 'time' && gd.data && gd.data.length && gd.querySelector('.main-svg')) {
     try {
       let layout = gd._fullLayout;
       let x = layout.xaxis.l2p(State.time) + layout.margin.l;
