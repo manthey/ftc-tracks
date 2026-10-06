@@ -11,7 +11,7 @@
         label { display: block; margin-bottom: 5px; }
         input[inputmode="decimal"] { width: 80px; }
         button { padding: 8px 16px; }
-        #plot { width: 100%; height: 400px; margin-top: 10px; } 
+        #plot { width: 100%; height: 400px; margin-top: 10px; }
         .hidden { display: none; }
     </style>
     <script src="https://cdn.plot.ly/plotly-3.1.1.min.js"></script>
@@ -136,10 +136,10 @@ class Motor {
     update(controlOutput, dt) {
         // normalizedControl and normalizedVelocity are in the range of [-1, 1]
         let normalizedControl = controlOutput / this.maxControlOutput;
-        let normalizedVelocity =  this.velocity / this.maxTicksPerSec; 
+        let normalizedVelocity =  this.velocity / this.maxTicksPerSec;
         let velRadPerSec = normalizedVelocity * (this.freeSpeed / 60 * Math.PI * 2);
 
-        // this is velRadPerSec * Ke / supplyVoltage, since 
+        // this is velRadPerSec * Ke / supplyVoltage, since
         // Ke = supplyVoltage / (this.freeSpeed / 60 * Math.PI * 2)
         let backEMF = normalizedVelocity;
         if (normalizedControl === 0 && this.zeroPower === 'float') {
@@ -149,7 +149,7 @@ class Motor {
         let drawCurrent = this.stallCurrent * (Math.abs(normalizedControl) - Math.abs(backEMF));
         normalizedControl *= (this.supplyVoltage - drawCurrent * this.supplyResistance) / this.supplyVoltage;
         // calculate torque
-        let motorTorque = this.stallTorque * (normalizedControl - backEMF); 
+        let motorTorque = this.stallTorque * (normalizedControl - backEMF);
         // simple inductance delay;
         const alpha = dt / (this.torqueElecConstant + dt);
         if (this.lastTorque !== undefined) {
@@ -172,11 +172,11 @@ class Motor {
 		*/
 
         // aproximate stribeck effect at slow speeds
-        const vStribeckNorm = 0.001;  
+        const vStribeckNorm = 0.001;
         const vAbsNorm = Math.abs(normalizedVelocity);
-        const blendStatic = Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2)); 
+        const blendStatic = Math.exp(-Math.pow(vAbsNorm / vStribeckNorm, 2));
         const dryFrictionMag = this.staticFriction * blendStatic + this.coulombFriction * (1 - blendStatic);
-                            
+
         frictionTorque = dryFrictionMag * Math.sign(this.velocity) + this.viscousFriction * velRadPerSec;
 
         const staticMag = this.staticFriction * blendStatic;
@@ -204,7 +204,7 @@ class PIDFController {
     reset() {
         this.integral = 0;
         this.lastDerivative = 0;
-        this.lastError = 0; 
+        this.lastError = 0;
     }
 
     compute(error, feedforward, dt) {
@@ -243,7 +243,7 @@ function simulate() {
         v[input.id] = +input.value;
         if (input.value !== input.getAttribute('value') && input.value.trim()) {
             query[input.id] = input.value.trim();
-        }            
+        }
     });
     document.querySelectorAll('select[id]').forEach((input) => {
         v[input.id] = input.value;

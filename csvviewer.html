@@ -252,9 +252,9 @@ function isNum(col) {
 }
 
 function sparkline(yi) {
-  /* if we graph based on the x-axis, we can either (a) sort the data so that 
-   * we reveal coupling between the values, (b) draw mini-line plots which 
-   * would be previews, (c) plot versus time, or (d) plot versus count; the 
+  /* if we graph based on the x-axis, we can either (a) sort the data so that
+   * we reveal coupling between the values, (b) draw mini-line plots which
+   * would be previews, (c) plot versus time, or (d) plot versus count; the
    * last two are probably the most obvious of what is going on. */
   const w = 72, h = 18;
   // change this to get time or count explicitly for options (c) or (d)
@@ -389,7 +389,7 @@ function drawPlot() {
         if (yVals === undefined) {
           return;
         }
-        if (!cats) {        
+        if (!cats) {
           traces.push({
             x: xVals,
             y: yVals,
@@ -399,7 +399,7 @@ function drawPlot() {
             mode: 'lines',
             line: { dash, width: 2, color: baseColor },
             hovertemplate: hovertemplate,
-          });        
+          });
         } else {
           const segs = [];
           let cur = { cat: cats[0], start: 0 };
@@ -431,7 +431,7 @@ function drawPlot() {
             });
           });
         }
-      });    
+      });
     });
   }
   addSeries(Left, 'y', LDASH, '');

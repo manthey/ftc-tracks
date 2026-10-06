@@ -8,10 +8,11 @@
 # ///
 import argparse
 import os
+import select
 import shutil
 import subprocess
-import sys
 import tempfile
+import time
 
 import pythoncom
 import win32com.client
@@ -71,6 +72,43 @@ def android_path(source):
     return '/sdcard/' + '/'.join(tail)
 
 
+def adb_pull_through_cat(adb, source, staged, stall=5.0):
+    """Stream a single file to staged via adb, tolerating read stalls.
+
+    adb pull can block on a specific file for minutes when its on-disk state
+    was never cleanly closed (a power cycle or code push skips the close).
+    Rather than wait, read the bytes over adb exec-out and abandon the read
+    after `stall` seconds with no data.  Whatever landed is the best we will
+    ever get and is treated as complete.  Returns the number of bytes written.
+    """
+    total = 0
+    last = time.monotonic()
+    proc = subprocess.Popen([adb, 'exec-out', 'cat', source],
+                            stdout=subprocess.PIPE)
+    fd = proc.stdout.fileno()
+    try:
+        with open(staged, 'wb') as out:
+            while True:
+                if select.select([fd], [], [], 0.1)[0]:
+                    chunk = os.read(fd, 65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    total += len(chunk)
+                    last = time.monotonic()
+                elif proc.poll() is not None:
+                    break
+                elif time.monotonic() - last >= stall:
+                    print(f'stalled reading {source}')
+                    break
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        proc.stdout.close()
+    return total
+
+
 def adb_pull(adb, source, dest, is_dir):
     os.makedirs(dest, exist_ok=True)
     parent = os.path.dirname(os.path.abspath(dest)) or os.curdir
@@ -98,8 +136,7 @@ def adb_pull(adb, source, dest, is_dir):
             if os.path.exists(final):
                 return True
             staged = os.path.join(tmp, os.path.basename(source.rstrip('/')))
-            result = subprocess.run([adb, 'pull', source, staged])
-            if result.returncode != 0 or not os.path.isfile(staged):
+            if not adb_pull_through_cat(adb, source, staged):
                 print(f'adb pull failed for {source}')
                 return False
             print(os.path.basename(final))
@@ -171,14 +208,14 @@ def mjpeg_to_mp4(input_path, output_path):
                 out.write(f'duration {d:.6f}\n')
             path = frames[-1].replace('\\', '/')
             out.write(f"file '{path}'\n")
-            out.write(f'duration 0.016666\n')
+            out.write('duration 0.016666\n')
         subprocess.run([
             ffmpeg_bin, '-y', '-f', 'concat', '-safe', '0', '-i', concat,
             '-vf', 'fps=30,colorchannelmixer=0:0:1:0:0:1:0:0:1:0:0',
             '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-g', '30', '-keyint_min', '30', '-sc_threshold', '0',
-            output_path
+            output_path,
         ], check=True)
 
 
@@ -271,7 +308,6 @@ def main():
         if adb is not None:
             if not adb_read(adb, args):
                 print('error: adb copy failed')
-                return
         else:
             com_read(args)
     if args.convert:

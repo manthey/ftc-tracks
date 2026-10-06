@@ -135,7 +135,6 @@ def track_sequence(name, posname, action, sequences, posnum=0, seq=None):
             sequences[name] = seq
         elif len(actions[action]['next']) == 1:
             if nextact not in actions or 'positions' not in actions[nextact] or len(actions[nextact]['positions']) == 1:
-
                 track_sequence(name, posname, nextact, sequences, 0, seq)
             else:
                 for posidx in range(len(actions[nextact]['positions'])):
@@ -145,14 +144,14 @@ def track_sequence(name, posname, action, sequences, posnum=0, seq=None):
                 track_sequence(name + nextact, posname, nextact, sequences, 0, seq)
             else:
                 for posidx in range(len(actions[nextact]['positions'])):
-                    track_sequence(name + nextact + str(posidx), posname, nextact, sequences, posidx, seq)
+                    track_sequence(name + nextact + str(posidx), posname,
+                                   nextact, sequences, posidx, seq)
 
 
 sequences = {}
 for posname in posdict:
     track_sequence(posname, posname, 'Start', sequences)
 pprint.pprint(sequences)
-
 tracktext = []
 for seqname, seq in sequences.items():
     tracktext.append(f'Path,{seqname}')
