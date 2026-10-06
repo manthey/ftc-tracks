@@ -495,6 +495,9 @@ function applyGraphOptions() {
 function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats) {
   let yAll, text, yAll2;
   let hovertemplate = '%{y:.5g}';
+  if (!State.columnDict[ykey]) {
+    return;
+  }
   if (!State.columnDict[ykey].text) {
     yAll = log.data.map((r) => parseFloat(r[ykey]));
     if (yAll.every((r) => r >= -10 && r <= 380) && yAll.some((r, ridx) => ridx && Math.abs(r - yAll[ridx - 1]) > 330)) {
