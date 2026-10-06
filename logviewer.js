@@ -5,6 +5,15 @@ const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
 const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 const PART_COLOR = { PRESENT: 1, PURPLE: 2, GREEN: 3 };
+/* explicit ordering for known categorical fields. Values listed are at the
+ * front in the given order (values that never occur are skipped); an entry of
+ * '*' places the remaining values in order of appearance instead of lexical
+ * order, and ['*'] alone orders the whole field by appearance. Fields not
+ * mentioned are lexical. */
+const CATEGORY_ORDER = {
+  'Blue hive state': ['UNKNOWN'],
+  'Red hive state': ['UNKNOWN'],
+};
 
 let Grid;
 let GridEditMode = false;
@@ -89,10 +98,38 @@ class LogRecord {
       }
       telemetry[key] = line[4];
       let nums = null;
+      let labels = null;
       if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
         const match = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
         if (match) {
           nums = match.split(/\s+/).map(parseFloat);
+        }
+        // when every number is prefixed by a word label (e.g. "LX 0.000" or
+        // "left: 0"), remember the labels so the exposed keys can use them
+        if (nums && nums.length > 1) {
+          const pairs = [];
+          let pending = null;
+          let ok = true;
+          line[4].trim().split(/\s+/).forEach((tok) => {
+            const lbl = tok.match(/^([A-Za-z]+)[:=]?$/);
+            if (lbl) {
+              if (pending !== null) {
+                ok = false;
+              }
+              pending = lbl[1];
+              return;
+            }
+            const n = parseFloat(tok);
+            if (isFinite(n)) {
+              pairs.push([pending, n]);
+              pending = null;
+            } else {
+              ok = false;
+            }
+          });
+          if (ok && pending === null && pairs.length === nums.length && pairs.every((p) => p[0] !== null) && new Set(pairs.map((p) => p[0])).size === pairs.length) {
+            labels = pairs.map((p) => p[0]);
+          }
         }
       }
       if (!nums || nums.length <= 1) {
@@ -100,7 +137,7 @@ class LogRecord {
         record[key] = nums?.length ? nums[0] : line[4];
       } else {
         nums.forEach((n, i) => {
-          const k = `${key} ${i + 1}`;
+          const k = labels ? `${key} ${labels[i]}` : `${key} ${i + 1}`;
           keys[k] = keys[k] || Object.keys(keys).length;
           record[k] = n;
         });
@@ -411,7 +448,7 @@ function sparkline(yidx) {
     let pts;
     let cats = uniqueOrder(ykey);
     if (cats) {
-      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]] }));
+      pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: cats.order[r[ykey]] })).filter((p) => isFinite(p.x) && isFinite(p.y));
     } else {
       pts = log.data.map((r) => ({ x: parseFloat(r[xkey]), y: parseFloat(r[ykey]) })).filter((p) => isFinite(p.x) && isFinite(p.y));
     }
@@ -591,8 +628,17 @@ function uniqueOrder(key) {
   if (!State.columnDict[key] || !State.columnDict[key].unique) {
     return;
   }
+  const seen = Object.keys(State.columnDict[key].unique);
+  const config = CATEGORY_ORDER[key.trim()];
+  const list = Array.isArray(config) ? config : config !== undefined ? [config] : [];
   const uni = {};
-  uni.names = Object.keys(State.columnDict[key].unique).sort();
+  uni.names = list.filter((v) => v !== '*' && seen.includes(v));
+  const rest = seen.filter((v) => !uni.names.includes(v));
+  if (list.includes('*')) {
+    uni.names.push(...rest);
+  } else {
+    uni.names.push(...rest.sort());
+  }
   uni.order = Object.fromEntries(uni.names.map((s, i) => [s, i]));
   return uni;
 }
