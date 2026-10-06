@@ -14,6 +14,7 @@ const CATEGORY_ORDER = {
   'Blue hive state': ['UNKNOWN'],
   'Red hive state': ['UNKNOWN'],
 };
+const MAX_LEGEND_ENTRIES = 9;
 
 let Grid;
 let GridEditMode = false;
@@ -426,6 +427,7 @@ function initGrid() {
   };
   addField();
   document.getElementById('cfg-plot').onclick = showGraphDialog;
+  document.getElementById('graph-plot').addEventListener('click', graphClickTime);
   // DWM::
 }
 
@@ -647,6 +649,7 @@ function drawGraph(graphNumber) {
   const gr = State.graphs[graphNumber];
   if (!gr.x || !(gr.left.length + gr.right.length)) {
     document.getElementById('graph-plot').innerHTML = '';
+    updateGraphCursor();
     return;
   }
   const logs = State.sortedLogs.filter((log) => log.selected);
@@ -677,6 +680,7 @@ function drawGraph(graphNumber) {
       autosize: true,
       margin: { l: 80, r: 80, t: 30, b: 30 },
       hovermode: 'x unified',
+      showlegend: traces.filter((trace) => trace.showlegend !== false).length <= MAX_LEGEND_ENTRIES,
       xaxis: {
         title: State.columns[gr.x],
         showspikes: true,
@@ -690,7 +694,17 @@ function drawGraph(graphNumber) {
       legend: { orientation: 'h', y: 1, x: 0.5, xanchor: 'center', yanchor: 'bottom' },
     },
     { responsive: true },
-  );
+  )
+    .then(() => {
+      // Plotly.react is asynchronous; the cursor cannot be positioned until the
+      // new layout has been applied.
+      const gd = document.getElementById('graph-plot');
+      if (!gd._cursorHooked) {
+        gd._cursorHooked = true;
+        gd.on('plotly_relayout', updateGraphCursor);
+      }
+      updateGraphCursor();
+    });
 }
 
 function addField() {
@@ -877,10 +891,11 @@ function updateNow() {
 
 function updateGraphCursor() {
   const gr = State.graphs[0];
+  const gd = document.getElementById('graph-plot');
   let applied;
-  if (gr.x === 'time') {
+  if (gr.x === 'time' && gd.data && gd.data.length && gd.querySelector('.main-svg')) {
     try {
-      let layout = $('#graph-plot')[0]._fullLayout;
+      let layout = gd._fullLayout;
       let x = layout.xaxis.l2p(State.time) + layout.margin.l;
       if (isFinite(x) && State.time >= 0) {
         $('#graph-cursor').css('left', x - 1 + 'px');
@@ -891,6 +906,32 @@ function updateGraphCursor() {
     }
   }
   $('#graph-cursor').toggleClass('hidden', !applied);
+}
+
+/**
+ * Set the current time based on a click on the graph, when the x axis is time.
+ */
+function graphClickTime(evt) {
+  const gr = State.graphs[0];
+  if (gr.x !== 'time') {
+    return;
+  }
+  const gd = document.getElementById('graph-plot');
+  const layout = gd._fullLayout;
+  if (!layout || !gd.data || !gd.data.length) {
+    return;
+  }
+  const rect = gd.getBoundingClientRect();
+  const px = evt.clientX - rect.left - layout._size.l;
+  const py = evt.clientY - rect.top - layout._size.t;
+  // ignore clicks outside the plotting area (mode bar, margins, legend)
+  if (px < 0 || px > layout._size.w || py < 0 || py > layout._size.h) {
+    return;
+  }
+  const time = layout.xaxis.p2l(px);
+  if (isFinite(time)) {
+    setTime(Math.max(0, Math.min(time, State.maxDuration)));
+  }
 }
 
 function updateTelemetry() {
