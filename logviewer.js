@@ -5,6 +5,15 @@ const LDASH = ['solid', 'dot', 'dashdot', 'longdash'];
 const RDASH = ['dash', 'longdashdot', '5,3,1,3', '1,4'];
 const PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 const PART_COLOR = { PRESENT: 1, PURPLE: 2, GREEN: 3 };
+/* explicit ordering for known categorical fields. Values listed are at the
+ * front in the given order (values that never occur are skipped); an entry of
+ * '*' places the remaining values in order of appearance instead of lexical
+ * order, and ['*'] alone orders the whole field by appearance. Fields not
+ * mentioned are lexical. */
+const CATEGORY_ORDER = {
+  'Blue hive state': ['UNKNOWN'],
+  'Red hive state': ['UNKNOWN'],
+};
 
 let Grid;
 let GridEditMode = false;
@@ -619,8 +628,17 @@ function uniqueOrder(key) {
   if (!State.columnDict[key] || !State.columnDict[key].unique) {
     return;
   }
+  const seen = Object.keys(State.columnDict[key].unique);
+  const config = CATEGORY_ORDER[key.trim()];
+  const list = Array.isArray(config) ? config : config !== undefined ? [config] : [];
   const uni = {};
-  uni.names = Object.keys(State.columnDict[key].unique).sort();
+  uni.names = list.filter((v) => v !== '*' && seen.includes(v));
+  const rest = seen.filter((v) => !uni.names.includes(v));
+  if (list.includes('*')) {
+    uni.names.push(...rest);
+  } else {
+    uni.names.push(...rest.sort());
+  }
   uni.order = Object.fromEntries(uni.names.map((s, i) => [s, i]));
   return uni;
 }
