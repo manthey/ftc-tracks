@@ -148,6 +148,26 @@ class LogRecord {
       this.data.push(record);
       this.telemetry.push(telemetry);
       this.keys = keys;
+      // Keys that only appear before the OpMode starts (start position,
+      // alliance, ...) are never logged again, so they get flushed from the
+      // record stream and the initial conditions are lost.  Seed their final
+      // pre-start values into every record; keys that do continue after start
+      // already carry their values through the change based logging.
+      Object.keys(this.init).forEach((k) => {
+        if (this.tkeys[k] === undefined) {
+          // + 2000 orders these after all regular and space prefixed keys in
+          // the telemetry table (telemetryKeys adds 1000 for space prefixed
+          // keys), so the initial conditions read as a block at the end
+          this.tkeys[k] = Object.keys(this.tkeys).length + 2000;
+          keys[k] = Object.keys(keys).length;
+          this.data.forEach((r) => {
+            r[k] = this.init[k];
+          });
+          this.telemetry.forEach((t) => {
+            t[k] = this.init[k];
+          });
+        }
+      });
     }
     if (this.data.length < 2) {
       this.data = undefined;
@@ -752,7 +772,17 @@ function addField() {
     .futureStyle({ strokeOpacity: 0 })
     .track((t) => t.data)
     .time((d) => d.time)
-    .position((d, i, t, j) => (!State.sortedLogs[j].selected ? { x: -10000, y: -10000 } : { x: d['Field position 1'], y: -d['Field position 2'], angle: (d['Field position 3'] * Math.PI) / 180 }))
+    .position((d, i, t, j) => {
+      if (!State.sortedLogs[j].selected) {
+        return { x: -10000, y: -10000 };
+      }
+      if (!isFinite(d['Field position 1']) || !isFinite(d['Field position 2']) || !isFinite(d['Field position 3'])) {
+        // bad or missing positions get the unselected off field sentinel so
+        // NaN coordinates are never projected
+        return { x: -10000, y: -10000 };
+      }
+      return { x: d['Field position 1'], y: -d['Field position 2'], angle: (d['Field position 3'] * Math.PI) / 180 };
+    })
     .startTime(0)
     .endTime(0);
   State.map.draw();
@@ -1107,12 +1137,18 @@ function updateRobotImages() {
     let inventory;
     if (tpos[idx].posidx !== undefined) {
       const ang = log.data[tpos[idx].posidx]['Field position 3'];
+      if (!isFinite(ang)) {
+        return;
+      }
       tpos[idx].angle = -(ang * Math.PI) / 180;
       indexer = log.data[tpos[idx].posidx]['Indexer Position'];
       inventory = log.data[tpos[idx].posidx]['Inventory'];
     } else {
       const ang0 = log.data[tpos[idx].posidx0]['Field position 3'];
       let ang1 = log.data[tpos[idx].posidx1]['Field position 3'];
+      if (!isFinite(ang0) || !isFinite(ang1)) {
+        return;
+      }
       if (Math.abs(ang0 - ang1) > 180) {
         ang1 += ang1 < ang0 ? 360 : -360;
       }
