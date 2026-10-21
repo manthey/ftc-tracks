@@ -52,7 +52,7 @@ def mtp_scan():
 
 
 def android_path(source):
-    """Convert a Windows MTP display path to an adb-readable path.
+    r"""Convert a Windows MTP display path to an adb-readable path.
 
     MTP shows the device as e.g. "Control Hub v1.0\\Internal shared
     storage\\FIRST\\telemetry"; adb needs /sdcard/FIRST/telemetry.  The first
@@ -235,11 +235,16 @@ def mtp_folder(shell, path, label):
     return folder
 
 
-def mtp_copy(shell, source, dest):
-    """Copy every item in an MTP folder into dest, skipping existing files."""
+def mtp_copy(shell, source, dest, suffix=None):
+    """Copy items in an MTP folder into dest, skipping existing files.
+
+    With suffix set, only items whose name ends with suffix are copied.
+    """
     os.makedirs(dest, exist_ok=True)
     folder = shell.Namespace(os.path.abspath(dest))
     for _itemname, item in sorted((item.Name, item) for item in source.Items()):
+        if suffix is not None and not item.Name.lower().endswith(suffix):
+            continue
         dest_path = os.path.join(dest, item.Name)
         if os.path.exists(dest_path):
             continue
@@ -279,6 +284,93 @@ def adb_read(adb, args):
     return True
 
 
+def first_root_path(source):
+    """Return the device path of the FIRST storage folder that contains the
+    given telemetry path.  Robot configuration files live there as <name>.xml
+    (see AppUtil.CONFIG_FILES_DIR in the FTC SDK).
+    """
+    parts = source.rstrip('/').split('/')
+    while parts and parts[-1] in ('', '.'):
+        parts.pop()
+    return '/'.join(parts[:-1])
+
+
+def adb_pull_files(adb, paths, dest):
+    """Pull individual device files into dest, skipping existing files."""
+    ok = True
+    for source in paths:
+        if not adb_pull(adb, source, dest, is_dir=False):
+            ok = False
+    return ok
+
+
+def adb_pull_settings(adb, root, dest):
+    """Pull the app settings files from <root>/settings into dest."""
+    folder = root + '/settings'
+    os.makedirs(dest, exist_ok=True)
+    result = subprocess.run([adb, 'shell', 'ls', '-1p', folder],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True)
+    # With -p, ls appends '/' to directories; skip them and pull plain files.
+    # Error lines such as "ls: ...: No such file or directory" are ignored.
+    names = sorted({os.path.basename(line.strip())
+                    for line in result.stdout.splitlines()
+                    if line.strip() and not line.strip().startswith('ls:') and
+                    not line.strip().endswith('/')})
+    if not names:
+        print(f'no settings files found in {folder}')
+        return False
+    return adb_pull_files(adb, [folder + '/' + name for name in names], dest)
+
+
+def adb_pull_configs(adb, args):
+    """Pull the robot configuration xml files and settings from the FIRST
+    folder.
+    """
+    root = first_root_path(android_path(args.source))
+    ok = True
+    dest = os.path.join(args.dest, 'configs')
+    os.makedirs(dest, exist_ok=True)
+    result = subprocess.run([adb, 'shell', 'ls', '-1', root + '/*.xml'],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True)
+    # The device shell expands the glob, so ls reports full device paths.
+    # Error lines such as "ls: ...: No such file or directory" are ignored.
+    names = sorted({os.path.basename(line.strip())
+                    for line in result.stdout.splitlines()
+                    if line.strip().endswith('.xml') and
+                    not line.strip().startswith('ls:')})
+    if not names:
+        print(f'no configuration xml files found in {root}')
+        ok = False
+    else:
+        ok = adb_pull_files(adb, [root + '/' + name for name in names], dest) and ok
+    ok = adb_pull_settings(adb, root, os.path.join(args.dest, 'settings')) and ok
+    return ok
+
+
+def com_read_configs(args):
+    """Fallback copy of the configuration xml files and settings via the MTP
+    shell.
+    """
+    mtp_scan()
+    pythoncom.CoInitialize()
+    try:
+        shell = win32com.client.Dispatch('Shell.Application')
+        first = first_root_path(args.source.replace('\\', '/'))
+        folder = mtp_folder(shell, first, first)
+        if folder is None:
+            return
+        mtp_copy(shell, folder, os.path.join(args.dest, 'configs'), suffix='.xml')
+        settings = first + '/settings'
+        folder = mtp_folder(shell, settings, settings)
+        if folder is None:
+            return
+        mtp_copy(shell, folder, os.path.join(args.dest, 'settings'))
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -294,6 +386,10 @@ def main():
         '--video', '-v', action='store_true',
         help='Also pull videos.')
     parser.add_argument(
+        '--config', '-f', action='store_true',
+        help='Also back up the robot configuration xml files and the '
+        'settings folder from the FIRST storage.')
+    parser.add_argument(
         '--convert', '-c', action='store_true',
         help='Convert pulled videos.')
     parser.add_argument(
@@ -308,12 +404,16 @@ def main():
         if adb is not None:
             if not adb_read(adb, args):
                 print('error: adb copy failed')
+            if args.config and not adb_pull_configs(adb, args):
+                print('error: configuration copy failed')
         else:
             com_read(args)
+            if args.config:
+                com_read_configs(args)
     if args.convert:
         video_dir = os.path.join(args.dest, 'videos')
         for filename in sorted(os.listdir(video_dir)):
-            if filename.endswith('.mjpeg') or filename.endswith('.avi'):
+            if filename.endswith(('.mjpeg', '.avi')):
                 input_path = os.path.join(video_dir, filename)
                 output_path = os.path.join(video_dir, os.path.splitext(filename)[0] + '.mp4')
                 if not os.path.exists(output_path):
