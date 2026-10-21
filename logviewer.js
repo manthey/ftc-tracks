@@ -20,7 +20,7 @@ let Grid;
 let GridEditMode = false;
 let Logs = {};
 const MapSettings = {
-  field: ['decode2.png', 72, 72, 72, 72],
+  field: ['biobuzz.png', 72, 72, 72, 72],
   robots: [
     ['decodebot33dpi.png', 8.25, 8.75, 8.25, 8.75],
     ['decodebot2.png', 8.25, 8.75, 8.25, 8.75],
