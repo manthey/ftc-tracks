@@ -8,15 +8,23 @@
 # ///
 import argparse
 import os
-import select
+import queue
+import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 import pythoncom
 import win32com.client
 from pyffmpeg import FFmpeg
+
+# Device mtimes below this are treated as bogus (a Control Hub without a
+# valid clock stamps files at epoch 0 plus a little uptime, i.e. dates in
+# 1969/1970) and are not copied to the local file.  1990 leaves decades of
+# margin over any real recording while covering any plausible uptime.
+MIN_PLAUSIBLE_MTIME = 631152000  # 1990-01-01 00:00 UTC
 
 
 def find_adb():
@@ -80,70 +88,153 @@ def adb_pull_through_cat(adb, source, staged, stall=5.0):
     Rather than wait, read the bytes over adb exec-out and abandon the read
     after `stall` seconds with no data.  Whatever landed is the best we will
     ever get and is treated as complete.  Returns the number of bytes written.
+
+    The read runs in a helper thread and the main loop waits on a queue with a
+    timeout, because select() on Windows only supports sockets and would fail
+    immediately on a subprocess pipe.
     """
     total = 0
     last = time.monotonic()
-    proc = subprocess.Popen([adb, 'exec-out', 'cat', source],
-                            stdout=subprocess.PIPE)
-    fd = proc.stdout.fileno()
+    # adb joins its arguments and passes them to the device shell, so the path
+    # must be quoted here or names with spaces or shell punctuation break.
+    # Discard remote stderr: over a legacy (non shell-protocol) connection it
+    # is merged into stdout and would otherwise be stored as file content.
+    # start_new_session lets the kill below take out any descendants holding
+    # the pipe open; it is ignored on Windows, where the direct kill suffices.
+    proc = subprocess.Popen(
+        [adb, 'exec-out', f'cat {shlex.quote(source)} 2>/dev/null'],
+        stdout=subprocess.PIPE, start_new_session=True)
+    chunks = queue.Queue()
+
+    def reader():
+        try:
+            while True:
+                chunk = proc.stdout.read1(65536)
+                if not chunk:
+                    break
+                chunks.put(chunk)
+        except OSError:
+            pass
+        finally:
+            chunks.put(None)
+            # The reader owns the pipe: closing it here cannot deadlock on the
+            # reader's own lock, unlike a close from the main thread.
+            proc.stdout.close()
+
+    threading.Thread(target=reader, daemon=True).start()
     try:
         with open(staged, 'wb') as out:
             while True:
-                if select.select([fd], [], [], 0.1)[0]:
-                    chunk = os.read(fd, 65536)
-                    if not chunk:
+                try:
+                    chunk = chunks.get(timeout=0.1)
+                except queue.Empty:
+                    if proc.poll() is not None:
                         break
-                    out.write(chunk)
-                    total += len(chunk)
-                    last = time.monotonic()
-                elif proc.poll() is not None:
+                    if time.monotonic() - last >= stall:
+                        print(f'stalled reading {source}')
+                        break
+                    continue
+                if chunk is None:
                     break
-                elif time.monotonic() - last >= stall:
-                    print(f'stalled reading {source}')
-                    break
+                out.write(chunk)
+                total += len(chunk)
+                last = time.monotonic()
     finally:
         if proc.poll() is None:
-            proc.kill()
+            try:
+                # 9 is SIGKILL; kill the whole session in case a descendant
+                # (not adb itself) is the one holding the pipe open.
+                os.killpg(os.getpgid(proc.pid), 9)
+            except (AttributeError, OSError):
+                proc.kill()
             proc.wait()
-        proc.stdout.close()
     return total
 
 
-def adb_pull(adb, source, dest, is_dir):
+def adb_stat(adb, source):
+    """Return (size, mtime) of a device file; either may be None if the stat
+    failed.
+    """
+    result = subprocess.run([adb, 'shell', 'stat', '-c', shlex.quote('%s %Y'),
+                             shlex.quote(source)],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True)
+    parts = result.stdout.split()
+    try:
+        return int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return None, None
+
+
+def adb_pull(adb, source, dest):
+    """Pull a single device file into dest, skipping it if already present."""
     os.makedirs(dest, exist_ok=True)
+    final = os.path.join(dest, os.path.basename(source.rstrip('/')))
+    if os.path.exists(final):
+        return True
     parent = os.path.dirname(os.path.abspath(dest)) or os.curdir
     tmp = tempfile.mkdtemp(prefix='.get_logs-', dir=parent)
     try:
-        if is_dir:
-            # adb pull of a directory creates <tmp>/<basename>.
-            result = subprocess.run([adb, 'pull', source, tmp])
-            pulled = os.path.join(tmp, os.path.basename(source.rstrip('/')))
-            if result.returncode != 0 or not os.path.isdir(pulled):
-                print(f'adb pull failed for {source}')
-                return False
-            for root, _dirs, files in os.walk(pulled):
-                rel = os.path.relpath(root, pulled)
-                outdir = dest if rel == os.curdir else os.path.join(dest, rel)
-                os.makedirs(outdir, exist_ok=True)
-                for name in sorted(files):
-                    final = os.path.join(outdir, name)
-                    if os.path.exists(final):
-                        continue
-                    print(name)
-                    os.replace(os.path.join(root, name), final)
-        else:
-            final = os.path.join(dest, os.path.basename(source.rstrip('/')))
-            if os.path.exists(final):
-                return True
-            staged = os.path.join(tmp, os.path.basename(source.rstrip('/')))
-            if not adb_pull_through_cat(adb, source, staged):
-                print(f'adb pull failed for {source}')
-                return False
-            print(os.path.basename(final))
-            os.replace(staged, final)
+        staged = os.path.join(tmp, os.path.basename(source.rstrip('/')))
+        total = adb_pull_through_cat(adb, source, staged)
+        size, mtime = adb_stat(adb, source)
+        # A zero-byte result is either a genuinely empty device file or a
+        # failed read; the device-side size tells them apart.  (Legacy
+        # exec-out connections do not propagate the remote exit code.)
+        if total == 0 and size != 0:
+            print(f'adb pull failed for {source}')
+            return False
+        print(os.path.basename(final))
+        os.replace(staged, final)
+        if mtime is not None and mtime >= MIN_PLAUSIBLE_MTIME:
+            # A Control Hub without a valid clock stamps files at epoch 0
+            # plus a little uptime (1969/1970 dates); those carry no
+            # information, so the pull time is left in place instead.
+            try:
+                os.utime(final, (mtime, mtime))
+            except OSError:
+                pass
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def adb_pull_dir(adb, source, dest):
+    """Pull the files of a flat device directory into dest, skipping files
+    that already exist locally.
+
+    adb pull of a directory has no incremental mode: it re-transfers every
+    file on every run, which over a robot's WiFi link means hundreds of
+    megabytes of copying even when nothing is new.  Listing the directory
+    first and pulling only the missing files avoids that, and routes each
+    file through the stall-tolerant single-file path.  Subdirectories are
+    reported and skipped.
+    """
+    os.makedirs(dest, exist_ok=True)
+    result = subprocess.run([adb, 'shell', 'ls', '-1pA', source],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True)
+    # With -p, ls appends '/' to directories; with -A it also lists dotfiles.
+    # Error lines such as "ls: ...: No such file or directory" carry no name.
+    names = []
+    errored = False
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.endswith('/'):
+            print(f'skipping subdirectory {line}')
+        elif line.startswith('ls:'):
+            errored = True
+        else:
+            names.append(os.path.basename(line))
+    if not names:
+        if errored:
+            print(f'adb pull failed for {source}')
+            return False
+        return True  # an empty directory has nothing to pull
+    return adb_pull_files(adb, [source.rstrip('/') + '/' + name
+                                for name in sorted(names)], dest)
 
 
 def extract_frames(path, tmp):
@@ -275,11 +366,11 @@ def com_read(args):
 def adb_read(adb, args):
     """Preferred copy path that uses adb, avoiding MTP staleness entirely."""
     source = android_path(args.source)
-    if not adb_pull(adb, source, args.dest, is_dir=True):
+    if not adb_pull_dir(adb, source, args.dest):
         return False
     if args.video:
         video_source = android_path(args.source.replace('telemetry', 'videos'))
-        if not adb_pull(adb, video_source, os.path.join(args.dest, 'videos'), is_dir=True):
+        if not adb_pull_dir(adb, video_source, os.path.join(args.dest, 'videos')):
             return False
     return True
 
@@ -299,36 +390,19 @@ def adb_pull_files(adb, paths, dest):
     """Pull individual device files into dest, skipping existing files."""
     ok = True
     for source in paths:
-        if not adb_pull(adb, source, dest, is_dir=False):
+        if not adb_pull(adb, source, dest):
             ok = False
     return ok
 
 
-def adb_pull_settings(adb, root, dest):
-    """Pull the app settings files from <root>/settings into dest."""
-    folder = root + '/settings'
-    os.makedirs(dest, exist_ok=True)
-    result = subprocess.run([adb, 'shell', 'ls', '-1p', folder],
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            text=True)
-    # With -p, ls appends '/' to directories; skip them and pull plain files.
-    # Error lines such as "ls: ...: No such file or directory" are ignored.
-    names = sorted({os.path.basename(line.strip())
-                    for line in result.stdout.splitlines()
-                    if line.strip() and not line.strip().startswith('ls:') and
-                    not line.strip().endswith('/')})
-    if not names:
-        print(f'no settings files found in {folder}')
-        return False
-    return adb_pull_files(adb, [folder + '/' + name for name in names], dest)
-
-
 def adb_pull_configs(adb, args):
-    """Pull the robot configuration xml files and settings from the FIRST
-    folder.
+    """Pull the robot configuration xml files from the FIRST folder.
+
+    The FTC SDK stores configuration files as <name>.xml directly in
+    AppUtil.CONFIG_FILES_DIR; there is no settings subfolder on shared
+    storage (app settings live in SharedPreferences).
     """
     root = first_root_path(android_path(args.source))
-    ok = True
     dest = os.path.join(args.dest, 'configs')
     os.makedirs(dest, exist_ok=True)
     result = subprocess.run([adb, 'shell', 'ls', '-1', root + '/*.xml'],
@@ -342,16 +416,12 @@ def adb_pull_configs(adb, args):
                     not line.strip().startswith('ls:')})
     if not names:
         print(f'no configuration xml files found in {root}')
-        ok = False
-    else:
-        ok = adb_pull_files(adb, [root + '/' + name for name in names], dest) and ok
-    ok = adb_pull_settings(adb, root, os.path.join(args.dest, 'settings')) and ok
-    return ok
+        return False
+    return adb_pull_files(adb, [root + '/' + name for name in names], dest)
 
 
 def com_read_configs(args):
-    """Fallback copy of the configuration xml files and settings via the MTP
-    shell.
+    """Fallback copy of the configuration xml files via the MTP shell.
     """
     mtp_scan()
     pythoncom.CoInitialize()
@@ -362,11 +432,6 @@ def com_read_configs(args):
         if folder is None:
             return
         mtp_copy(shell, folder, os.path.join(args.dest, 'configs'), suffix='.xml')
-        settings = first + '/settings'
-        folder = mtp_folder(shell, settings, settings)
-        if folder is None:
-            return
-        mtp_copy(shell, folder, os.path.join(args.dest, 'settings'))
     finally:
         pythoncom.CoUninitialize()
 
