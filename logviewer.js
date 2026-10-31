@@ -900,7 +900,7 @@ function updateLogs(skipRerender) {
   categorizeColumns();
   drawGraph(0);
   // DWM::
-  console.log(State); // DWM::
+  // console.log(State); // DWM::
   updateNow();
 }
 
@@ -1033,7 +1033,7 @@ function categorizeColumns() {
       .sort((a, b) => log.keys[a] - log.keys[b])
       .forEach((key) => {
         if (!columns[key]) {
-          columns[key] = { key: key, unique: {}, text: false, pos: Object.keys(columns).length };
+          columns[key] = { key: key, unique: {}, text: false, uniqCount: 0, pos: Object.keys(columns).length };
         }
         for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
           const row = log.data[r];
@@ -1043,12 +1043,17 @@ function categorizeColumns() {
             if (!isFinite(val)) {
               columns[key].text = true;
               if (key == 'Distance Left') {
-                console.log(val);
+                // console.log(val);
               }
             }
             if (columns[key].unique !== undefined) {
-              columns[key].unique[val] = true;
-              if (Object.keys(columns[key].unique).length > 50) {
+              // count distinct values instead of calling Object.keys().length
+              // per row; the enumeration was a large share of load time
+              if (columns[key].unique[val] === undefined) {
+                columns[key].unique[val] = true;
+                columns[key].uniqCount += 1;
+              }
+              if (columns[key].uniqCount > 50) {
                 columns[key].unique = undefined;
               }
             }
@@ -1188,22 +1193,28 @@ function updateRobotImages() {
 }
 
 function loadFiles(evt) {
+  // updateLogs() recategorizes all columns and redraws the graph, which is
+  // expensive; only do it once after all the selected files are parsed
+  let remaining = 0;
   for (idx = 0; idx < evt.target.files.length; idx += 1) {
     const file = evt.target.files[idx];
     if (!file) {
       return;
     }
+    remaining += 1;
     const reader = new FileReader();
     reader.onload = (evt) => {
       const log = new LogRecord(evt.target.result, file.name);
-      if (!log.data) {
-        return;
+      if (log.data) {
+        if (Logs[log.filename] !== undefined) {
+          log.selected = Logs[log.filename].selected;
+        }
+        Logs[log.filename] = log;
       }
-      if (Logs[log.filename] !== undefined) {
-        log.selected = Logs[log.filename].selected;
+      remaining -= 1;
+      if (!remaining) {
+        updateLogs();
       }
-      Logs[log.filename] = log;
-      updateLogs();
     };
     reader.readAsText(file);
   }
