@@ -45,10 +45,8 @@ adb version note:
   pass --no-download to use the local adb regardless.
 """
 
-DOWNLOAD_URL = ('https://dl.google.com/android/repository/'
-                'platform-tools-latest-windows.zip')
-DOWNLOAD_ROOT = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
-                             'ftc-adb')
+DOWNLOAD_URL = 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip'
+DOWNLOAD_ROOT = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ftc-adb')
 ADB_CANDIDATES = [
     'C:\\Program Files (x86)\\REV Robotics\\REV Hardware Client\\android-tools\\adb.exe',
     'C:\\Program Files\\REV Robotics\\REV Hardware Client\\android-tools\\adb.exe',
@@ -56,16 +54,12 @@ ADB_CANDIDATES = [
 ]
 # A server older than this may not accept a modern client's handshake.
 MIN_VERSION = (31, 0, 0)
-# Ports tried after the requested one, in order.  Wider than just 5038-5040
-# because Windows can reserve whole port ranges (Hyper-V / WSL2 winnat),
-# which makes every port in such a range unbindable.
+# Ports tried after the requested one, in order.
 FALLBACK_PORTS = (5038, 5039, 5040, 5050, 5060, 5070)
-# Log text that indicates a bind conflict specifically.  Note that EVERY adb
-# fatal error mentions *smartsocket*, so that word alone proves nothing.
+# Log text that indicates a bind conflict specifically.
 BUSY_MARKERS = ('only one usage', 'address already in use', '10048')
 DENIED_MARKERS = ('permission denied', 'access denied', '10013')
-SMARTSOCKET_REASON = re.compile(
-    r'could not install \*smartsocket\* listener: (.*)')
+SMARTSOCKET_REASON = re.compile(r'could not install \*smartsocket\* listener: (.*)')
 
 
 def downloaded_adb():
@@ -83,9 +77,9 @@ def exists(candidate):
 def adb_version(adb):
     """Version string such as 35.0.2 from `adb --version`, or None."""
     try:
-        result = subprocess.run([adb, '--version'], stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, text=True,
-                                timeout=30)
+        result = subprocess.run(
+            [adb, '--version'], stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
     for line in result.stdout.splitlines():
@@ -126,6 +120,100 @@ def download_platform_tools():
         msg = f'{adb} missing after extraction'
         raise RuntimeError(msg)
     return adb
+
+
+def smartsocket(port, command, timeout=2.0):
+    """Send one smartsocket request to 127.0.0.1:port and return the reply
+    payload.
+
+    The smartsocket protocol is a 4-digit hex length followed by the
+    request text; replies are OKAY, a 4-digit hex length, then the payload.
+    Returns None if nothing is listening, 'other' if the port is held by
+    something that does not speak the adb protocol.
+    """
+    message = command.encode()
+    try:
+        with socket.create_connection(('127.0.0.1', port),
+                                      timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(f'{len(message):04x}'.encode() + message)
+            data = b''
+            while len(data) < 8:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                data += chunk
+            if len(data) < 8 or not data.startswith(b'OKAY'):
+                return 'other'
+            payload_length = int(data[4:8], 16)
+            while len(data) < 8 + payload_length:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                data += chunk
+            return data[8:8 + payload_length].decode('ascii', 'replace')
+    except ConnectionRefusedError:
+        return None
+    except (OSError, ValueError):
+        return 'other'
+
+
+def find_server(ports):
+    """Look for an adb server among the candidate ports.
+
+    Returns (port, version, others): the port and version of the first adb
+    server found (None if there is none), and the ports held by something
+    that is not an adb server.
+    """
+    port = version = None
+    others = []
+    for candidate in ports:
+        answer = smartsocket(candidate, 'host:version')
+        if answer is None:
+            continue
+        if answer == 'other':
+            others.append(candidate)
+        elif port is None:
+            port, version = candidate, answer.strip()
+    return port, version, others
+
+
+def wait_server_gone(port, timeout=5.0):
+    """Wait until nothing answers on port; True once the port is quiet."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if smartsocket(port, 'host:version') is None:
+            return True
+        time.sleep(0.25)
+    return smartsocket(port, 'host:version') is None
+
+
+def check_or_stop(args):
+    """Implement --check and --stop without needing the adb binary."""
+    ports = [args.port] + [p for p in FALLBACK_PORTS if p != args.port]
+    port, version, others = find_server(ports)
+    for other in others:
+        print(f'note: something that is not an adb server is listening on '
+              f'port {other}', file=sys.stderr)
+    listed = ', '.join(str(p) for p in ports)
+    if args.check:
+        if port is None:
+            print(f'no adb server is running (checked ports {listed})')
+            return 1
+        print(f'adb server is running on tcp:127.0.0.1:{port} '
+              f'(server version {version})')
+        return 0
+    if port is None:
+        print(f'no adb server is running (checked ports {listed})')
+        return 0
+    print(f'stopping the adb server on port {port} ...')
+    smartsocket(port, 'host:kill')
+    if wait_server_gone(port):
+        print(f'adb server on port {port} stopped')
+        return 0
+    print(f'error: the adb server on port {port} did not stop; try '
+          f'"adb -H localhost -P {port} kill-server"', file=sys.stderr)
+    return 1
 
 
 def stop_server(adb, port=None):
@@ -274,6 +362,8 @@ def start_first_port(adb, port, log, log_path):
 
 
 def run(args):  # noqa
+    if args.check or args.stop:
+        return check_or_stop(args)
     adb, version = pick_adb(args)
     if adb is None:
         print('error: no adb found; install platform-tools or the REV '
@@ -375,6 +465,16 @@ def main():
         help='Address to listen on.  Default and only useful value: 0.0.0.0 '
         '(all interfaces); adb cannot listen on a specific address.')
     parser.add_argument(
+        '--check', action='store_true',
+        help='Report whether an adb server is listening on the default port '
+        'or any fallback port, then exit.  Exit status 0 means a server is '
+        'running, 1 means none.')
+    parser.add_argument(
+        '--stop', action='store_true',
+        help='Stop a running adb server (on the default port or any '
+        'fallback port) and exit.  Exit status 0 if nothing was running or '
+        'the server stopped, 1 on failure.')
+    parser.add_argument(
         '--keep', action='store_true',
         help='Leave the server running when this script exits instead of '
         'stopping it.')
@@ -386,6 +486,8 @@ def main():
         '--no-download', action='store_true',
         help='Never download; use the local adb even if it is old.')
     args = parser.parse_args()
+    if args.check and args.stop:
+        parser.error('--check and --stop cannot be used together')
     sys.exit(run(args))
 
 

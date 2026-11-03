@@ -2,7 +2,8 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "pywin32",
+#     "tqdm",
+#     "pywin32; sys_platform == 'win32'",
 #     "pyffmpeg",
 # ]
 # ///
@@ -16,15 +17,22 @@ import tempfile
 import threading
 import time
 
-import pythoncom
-import win32com.client
+try:
+    import pythoncom
+    import win32com.client
+except ImportError:
+    pythoncom = None
+    win32com = None
 from pyffmpeg import FFmpeg
+from tqdm import tqdm
 
-# Device mtimes below this are treated as bogus (a Control Hub without a
-# valid clock stamps files at epoch 0 plus a little uptime, i.e. dates in
-# 1969/1970) and are not copied to the local file.  1990 leaves decades of
-# margin over any real recording while covering any plausible uptime.
 MIN_PLAUSIBLE_MTIME = 631152000  # 1990-01-01 00:00 UTC
+
+
+def note(msg):
+    """Print msg on its own line, erasing any progress bar render first."""
+    width = shutil.get_terminal_size().columns - 1
+    print('\r' + msg[:width].ljust(width))
 
 
 def find_adb():
@@ -80,7 +88,7 @@ def android_path(source):
     return '/sdcard/' + '/'.join(tail)
 
 
-def adb_pull_through_cat(adb, source, staged, stall=5.0):
+def adb_pull_through_cat(adb, source, staged, progress, stall=5.0):
     """Stream a single file to staged via adb, tolerating read stalls.
 
     adb pull can block on a specific file for minutes when its on-disk state
@@ -88,6 +96,8 @@ def adb_pull_through_cat(adb, source, staged, stall=5.0):
     Rather than wait, read the bytes over adb exec-out and abandon the read
     after `stall` seconds with no data.  Whatever landed is the best we will
     ever get and is treated as complete.  Returns the number of bytes written.
+
+    Every byte moved is reported to `progress` (the run-wide bar).
 
     The read runs in a helper thread and the main loop waits on a queue with a
     timeout, because select() on Windows only supports sockets and would fail
@@ -139,6 +149,7 @@ def adb_pull_through_cat(adb, source, staged, stall=5.0):
                 out.write(chunk)
                 total += len(chunk)
                 last = time.monotonic()
+                progress.update(len(chunk))
     finally:
         if proc.poll() is None:
             try:
@@ -166,7 +177,7 @@ def adb_stat(adb, source):
         return None, None
 
 
-def adb_pull(adb, source, dest):
+def adb_pull(adb, source, dest, progress):
     """Pull a single device file into dest, skipping it if already present."""
     os.makedirs(dest, exist_ok=True)
     final = os.path.join(dest, os.path.basename(source.rstrip('/')))
@@ -176,15 +187,20 @@ def adb_pull(adb, source, dest):
     tmp = tempfile.mkdtemp(prefix='.get_logs-', dir=parent)
     try:
         staged = os.path.join(tmp, os.path.basename(source.rstrip('/')))
-        total = adb_pull_through_cat(adb, source, staged)
+        # Stat before the pull so the size can be added to the progress
+        # bar's total.
         size, mtime = adb_stat(adb, source)
+        if size is not None:
+            progress.total = (progress.total or 0) + size
+        progress.set_description(os.path.basename(source), refresh=False)
+        total = adb_pull_through_cat(adb, source, staged, progress)
         # A zero-byte result is either a genuinely empty device file or a
         # failed read; the device-side size tells them apart.  (Legacy
         # exec-out connections do not propagate the remote exit code.)
         if total == 0 and size != 0:
             print(f'adb pull failed for {source}')
             return False
-        print(os.path.basename(final))
+        note(os.path.basename(final))
         os.replace(staged, final)
         if mtime is not None and mtime >= MIN_PLAUSIBLE_MTIME:
             # A Control Hub without a valid clock stamps files at epoch 0
@@ -199,7 +215,7 @@ def adb_pull(adb, source, dest):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def adb_pull_dir(adb, source, dest):
+def adb_pull_dir(adb, source, dest, progress):
     """Pull the files of a flat device directory into dest, skipping files
     that already exist locally.
 
@@ -234,7 +250,7 @@ def adb_pull_dir(adb, source, dest):
             return False
         return True  # an empty directory has nothing to pull
     return adb_pull_files(adb, [source.rstrip('/') + '/' + name
-                                for name in sorted(names)], dest)
+                                for name in sorted(names)], dest, progress)
 
 
 def extract_frames(path, tmp):
@@ -345,6 +361,10 @@ def mtp_copy(shell, source, dest, suffix=None):
 
 def com_read(args):
     """Fallback copy path that uses the Windows COM / MTP shell."""
+    if win32com is None:
+        print('error: the MTP fallback copy requires Windows; install adb '
+              'so it can be used instead')
+        return
     mtp_scan()
     pythoncom.CoInitialize()
     try:
@@ -363,14 +383,15 @@ def com_read(args):
         pythoncom.CoUninitialize()
 
 
-def adb_read(adb, args):
+def adb_read(adb, args, progress):
     """Preferred copy path that uses adb, avoiding MTP staleness entirely."""
     source = android_path(args.source)
-    if not adb_pull_dir(adb, source, args.dest):
+    if not adb_pull_dir(adb, source, args.dest, progress):
         return False
     if args.video:
         video_source = android_path(args.source.replace('telemetry', 'videos'))
-        if not adb_pull_dir(adb, video_source, os.path.join(args.dest, 'videos')):
+        if not adb_pull_dir(adb, video_source,
+                            os.path.join(args.dest, 'videos'), progress):
             return False
     return True
 
@@ -386,16 +407,16 @@ def first_root_path(source):
     return '/'.join(parts[:-1])
 
 
-def adb_pull_files(adb, paths, dest):
+def adb_pull_files(adb, paths, dest, progress):
     """Pull individual device files into dest, skipping existing files."""
     ok = True
     for source in paths:
-        if not adb_pull(adb, source, dest):
+        if not adb_pull(adb, source, dest, progress):
             ok = False
     return ok
 
 
-def adb_pull_configs(adb, args):
+def adb_pull_configs(adb, args, progress):
     """Pull the robot configuration xml files from the FIRST folder.
 
     The FTC SDK stores configuration files as <name>.xml directly in
@@ -417,12 +438,17 @@ def adb_pull_configs(adb, args):
     if not names:
         print(f'no configuration xml files found in {root}')
         return False
-    return adb_pull_files(adb, [root + '/' + name for name in names], dest)
+    return adb_pull_files(adb, [root + '/' + name for name in names], dest,
+                          progress)
 
 
 def com_read_configs(args):
     """Fallback copy of the configuration xml files via the MTP shell.
     """
+    if win32com is None:
+        print('error: the MTP fallback copy requires Windows; install adb '
+              'so it can be used instead')
+        return
     mtp_scan()
     pythoncom.CoInitialize()
     try:
@@ -467,10 +493,15 @@ def main():
     if not args.noread:
         adb = find_adb()
         if adb is not None:
-            if not adb_read(adb, args):
-                print('error: adb copy failed')
-            if args.config and not adb_pull_configs(adb, args):
-                print('error: configuration copy failed')
+            progress = tqdm(total=None, unit='B', unit_scale=True,
+                            unit_divisor=1024, delay=5.0)
+            try:
+                if not adb_read(adb, args, progress):
+                    print('error: adb copy failed')
+                if args.config and not adb_pull_configs(adb, args, progress):
+                    print('error: configuration copy failed')
+            finally:
+                progress.close()
         else:
             com_read(args)
             if args.config:
