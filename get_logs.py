@@ -27,6 +27,19 @@ from pyffmpeg import FFmpeg
 from tqdm import tqdm
 
 MIN_PLAUSIBLE_MTIME = 631152000  # 1990-01-01 00:00 UTC
+# Serial of the attached Control Hub, detected at startup.  When both a
+# Control Hub and a Driver Station are plugged in, plain adb commands fail
+# with "adb: more than one device/emulator", so every command is targeted
+# with -s once the hub is identified.
+ADB_SERIAL = None
+
+
+def adb_cmd(adb, *args):
+    """Build an adb command line targeting the detected Control Hub."""
+    cmd = [adb]
+    if ADB_SERIAL:
+        cmd += ['-s', ADB_SERIAL]
+    return cmd + list(args)
 
 
 def note(msg):
@@ -55,14 +68,89 @@ def find_adb():
     return None
 
 
+def list_devices(adb):
+    """Return the serials of attached devices that are in the ready ('device')
+    state.
+    """
+    result = subprocess.run([adb, 'devices'], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True)
+    serials = []
+    for line in result.stdout.splitlines()[1:]:
+        line = line.rstrip()
+        if not line or line.startswith('*'):
+            continue
+        serial, _, state = line.partition('\t')
+        if state.strip() == 'device':
+            serials.append(serial.strip())
+    return serials
+
+
+def device_model(adb, serial):
+    """Return ro.product.model for a device, or '' if it cannot be read."""
+    result = subprocess.run(adb_cmd(adb, '-s', serial, 'shell', 'getprop',
+                                    'ro.product.model'),
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            text=True)
+    return result.stdout.strip()
+
+
+def has_telemetry_dir(adb, serial):
+    """Return True if /sdcard/FIRST/telemetry exists on the device.
+
+    Used as a fallback identifier: the FTC Robot Controller app (which runs
+    only on a Control Hub) writes its logs to that folder.
+    """
+    result = subprocess.run(
+        adb_cmd(adb, '-s', serial, 'shell',
+                'test -d /sdcard/FIRST/telemetry && echo yes'),
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return 'yes' in result.stdout
+
+
+def find_control_hub(adb, serials):
+    """Return the serial of the Control Hub among serials, or None.
+
+    A Control Hub is identified by its model property ("Control Hub v1.0",
+    matching the MTP display name); if no device reports such a model, the
+    one carrying the telemetry folder is taken as the hub.
+    """
+    for serial in serials:
+        if 'control hub' in device_model(adb, serial).lower():
+            return serial
+    for serial in serials:
+        if has_telemetry_dir(adb, serial):
+            return serial
+    return None
+
+
+def select_control_hub(adb):
+    """Detect the Control Hub and target it for all adb commands.
+
+    With a single device attached the serial is left unset so behavior is
+    unchanged.  With several attached, the Control Hub is picked explicitly;
+    if none can be identified, a clear error is printed instead of adb's
+    "more than one device/emulator".
+    """
+    global ADB_SERIAL
+    serials = list_devices(adb)
+    if len(serials) <= 1:
+        return
+    ADB_SERIAL = find_control_hub(adb, serials)
+    if ADB_SERIAL:
+        note(f'using Control Hub {ADB_SERIAL}')
+    else:
+        print('error: multiple devices attached but none could be '
+              f'identified as a Control Hub: {", ".join(serials)}')
+
+
 def mtp_scan():
     adb = find_adb()
     if adb is None:
         return
     path = '/sdcard/FIRST/telemetry'
-    cmd = [adb, 'shell', 'am', 'broadcast', '-a',
-           'android.intent.action.MEDIA_SCANNER_SCAN_WITH_PATH', '--es',
-           'android.intent.extra.PATH', path]
+    cmd = adb_cmd(adb, 'shell', 'am', 'broadcast', '-a',
+                  'android.intent.action.MEDIA_SCANNER_SCAN_WITH_PATH', '--es',
+                  'android.intent.extra.PATH', path)
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print('mtp rescan requested')
 
@@ -112,7 +200,7 @@ def adb_pull_through_cat(adb, source, staged, progress, stall=5.0):
     # start_new_session lets the kill below take out any descendants holding
     # the pipe open; it is ignored on Windows, where the direct kill suffices.
     proc = subprocess.Popen(
-        [adb, 'exec-out', f'cat {shlex.quote(source)} 2>/dev/null'],
+        adb_cmd(adb, 'exec-out', f'cat {shlex.quote(source)} 2>/dev/null'),
         stdout=subprocess.PIPE, start_new_session=True)
     chunks = queue.Queue()
 
@@ -166,8 +254,9 @@ def adb_stat(adb, source):
     """Return (size, mtime) of a device file; either may be None if the stat
     failed.
     """
-    result = subprocess.run([adb, 'shell', 'stat', '-c', shlex.quote('%s %Y'),
-                             shlex.quote(source)],
+    result = subprocess.run(adb_cmd(adb, 'shell', 'stat', '-c',
+                                    shlex.quote('%s %Y'),
+                                    shlex.quote(source)),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True)
     parts = result.stdout.split()
@@ -227,7 +316,7 @@ def adb_pull_dir(adb, source, dest, progress):
     reported and skipped.
     """
     os.makedirs(dest, exist_ok=True)
-    result = subprocess.run([adb, 'shell', 'ls', '-1pA', source],
+    result = subprocess.run(adb_cmd(adb, 'shell', 'ls', '-1pA', source),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True)
     # With -p, ls appends '/' to directories; with -A it also lists dotfiles.
@@ -426,8 +515,8 @@ def adb_pull_configs(adb, args, progress):
     root = first_root_path(android_path(args.source))
     dest = os.path.join(args.dest, 'configs')
     os.makedirs(dest, exist_ok=True)
-    result = subprocess.run([adb, 'shell', 'ls', '-1', root + '/*.xml'],
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    result = subprocess.run(adb_cmd(adb, 'shell', 'ls', '-1', root + '/*.xml'),
+                            capture_output=True,
                             text=True)
     # The device shell expands the glob, so ls reports full device paths.
     # Error lines such as "ls: ...: No such file or directory" are ignored.
@@ -437,7 +526,7 @@ def adb_pull_configs(adb, args, progress):
                     not line.strip().startswith('ls:')})
     if not names:
         print(f'no configuration xml files found in {root}')
-        return False
+        return True
     return adb_pull_files(adb, [root + '/' + name for name in names], dest,
                           progress)
 
@@ -493,6 +582,7 @@ def main():
     if not args.noread:
         adb = find_adb()
         if adb is not None:
+            select_control_hub(adb)
             progress = tqdm(total=None, unit='B', unit_scale=True,
                             unit_divisor=1024, delay=5.0)
             try:
