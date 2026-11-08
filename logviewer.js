@@ -1710,12 +1710,10 @@ async function liveFetchMore() {
   scheduleLiveUpdate();
 }
 
-/** Publish the growing LogRecord into the log list and refresh the UI. The
- * per-poll data ingest is cheap, but the dashboard refresh (log list, graph
- * extension and rescale, track rebind) should not run per poll; 150 ms keeps
- * the updates from pulsing while leaving the main thread mostly free.
- * Telemetry values and the graph cursor also track the live edge every frame
- * via updateNow() from the playback loop. */
+/** Publish the growing LogRecord into the log list and refresh the UI at
+ * the poll rate (Live.pollMs), so the dashboard is as live as the data. The
+ * ingest and the incremental updates are cheap, but if a very long live log
+ * makes this pace stutter, that is the place to revisit. */
 function scheduleLiveUpdate() {
   if (Live.uiTimer || !Live.log) {
     return;
@@ -1739,7 +1737,7 @@ function scheduleLiveUpdate() {
       startPlayTimer();
     }
     liveStatus(`live: ${name} (${Live.log.data.length} rows)`);
-  }, 150);
+  }, Live.pollMs);
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);
