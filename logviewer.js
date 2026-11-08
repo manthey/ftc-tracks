@@ -995,12 +995,18 @@ function playUpdate() {
     return;
   }
   let speed = SPEED_VALUES[$('#speed').val()] || 1;
+  // while following a live log, the playback ceiling is that log's own last
+  // record time, which advances with every poll; State.maxDuration only
+  // refreshes on the throttled dashboard update, so using it alone would
+  // make the live edge (telemetry, field, cursor) step in visible bursts
+  const liveLog = liveFollowSelected() ? Logs[Live.file] : null;
+  const maxTime = liveLog && isFinite(liveLog.duration) ? Math.max(State.maxDuration, liveLog.duration) : State.maxDuration;
   let newTime = (Date.now() - State.referenceTime) * 0.001 * speed + State.baseTime;
-  const atEnd = newTime >= State.maxDuration;
-  setTime(Math.min(State.maxDuration, newTime), undefined, false, true);
-  if (atEnd && liveFollowSelected()) {
+  const atEnd = newTime >= maxTime;
+  setTime(Math.min(maxTime, newTime), undefined, false, true);
+  if (atEnd && liveLog) {
     // following a live log: pin at the live edge and keep rolling instead of
-    // pausing; the next poll extends maxDuration and playback continues from
+    // pausing; the next poll extends the log and playback continues from
     // there, so a poll that falls behind never looks like the end
   } else if (atEnd) {
     if (!State.continuous) {
@@ -1079,7 +1085,20 @@ function updateLogs(skipRerender) {
   const items = Object.values(Logs).sort((a, b) => a.displayname.localeCompare(b.displayname));
   State.sortedLogs = items;
   if (!skipRerender) {
-    sel.innerHTML = items.map((i) => `<option value="${i.filename}"${i.selected ? ' selected' : ''}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`).join('');
+    // rebuilding the options on every refresh flickers and closes an open
+    // dropdown, so only rebuild when the set of logs or their selection
+    // changes, and update the existing options' labels in place otherwise
+    const signature = items.map((i) => `${i.filename}:${i.selected ? 1 : 0}`).join('|');
+    if (sel.dataset.signature === signature) {
+      [...sel.options].forEach((opt, idx) => {
+        if (items[idx]) {
+          opt.textContent = `${items[idx].displayname} (${items[idx].duration.toFixed(2)}s)`;
+        }
+      });
+    } else {
+      sel.dataset.signature = signature;
+      sel.innerHTML = items.map((i) => `<option value="${i.filename}"${i.selected ? ' selected' : ''}>${i.displayname} (${i.duration.toFixed(2)}s)</option>`).join('');
+    }
     if (items.length && !items.some((i) => i.selected)) {
       items[0].selected = true;
       sel.options[0].selected = true;
@@ -1692,10 +1711,11 @@ async function liveFetchMore() {
 }
 
 /** Publish the growing LogRecord into the log list and refresh the UI. The
- * per-poll data ingest is cheap, but updateLogs() (column categorization plus
- * a full Plotly redraw) costs O(log size), so it is throttled; telemetry
- * values and the graph cursor still track the live edge every frame via
- * updateNow() from the playback loop. */
+ * per-poll data ingest is cheap, but the dashboard refresh (log list, graph
+ * extension and rescale, track rebind) should not run per poll; 150 ms keeps
+ * the updates from pulsing while leaving the main thread mostly free.
+ * Telemetry values and the graph cursor also track the live edge every frame
+ * via updateNow() from the playback loop. */
 function scheduleLiveUpdate() {
   if (Live.uiTimer || !Live.log) {
     return;
@@ -1719,7 +1739,7 @@ function scheduleLiveUpdate() {
       startPlayTimer();
     }
     liveStatus(`live: ${name} (${Live.log.data.length} rows)`);
-  }, 500);
+  }, 150);
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);
