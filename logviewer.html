@@ -5,12 +5,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>RBV Log Viewer</title>
-  <link href="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack.min.css" rel="stylesheet">
+  <!-- each library is loaded from a local copy first so the viewer works
+       without internet (e.g. served by the robot on port 6955), falling back
+       to jsdelivr when the local file is missing; getlibs.sh downloads them -->
+  <link href="gridstack.min.css" rel="stylesheet"
+    onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack.min.css';">
   <link href="logviewer.css" rel="stylesheet">
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.20.0/geo.min.js"></script>
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack-all.js"></script>
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/plotly.js@3.3.1/dist/plotly.min.js"></script>
+  <script type="text/javascript" src="geo.min.js"></script>
+  <script>window.geo || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/geojs@1.20.0/geo.min.js"><\/script>');</script>
+  <script type="text/javascript" src="gridstack-all.js"></script>
+  <script>window.GridStack || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/gridstack@12.4.2/dist/gridstack-all.js"><\/script>');</script>
+  <script type="text/javascript" src="papaparse.min.js"></script>
+  <script>window.Papa || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"><\/script>');</script>
+  <script type="text/javascript" src="plotly.min.js"></script>
+  <script>window.Plotly || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/plotly.js@3.3.1/dist/plotly.min.js"><\/script>');</script>
   <script type="text/javascript" src="logviewer.js"></script>
 </head>
 
@@ -36,6 +44,11 @@
       <!--
       <label><input type="checkbox" id="realign" title="Realign teleop from preceding auto"> Realign</label>
     -->
+      <div class="live-group">
+        <input type="text" id="live-host" placeholder="robot ip" title="Robot or simulator address; port 6955 is added automatically" />
+        <button id="live" title="Load the most recent log from the robot and follow it as new data arrives">Live</button>
+        <span id="live-status"></span>
+      </div>
       <div class="button-group">
         <button id="remove" title="Remove selected logs">Remove</button>
       </div>

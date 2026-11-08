@@ -105,6 +105,27 @@ control-group>input {
   flex-shrink: 0;
 }
 
+.live-group {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+#live-host {
+  flex: 1;
+  min-width: 0;
+}
+
+#live-status {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
 .svg-button {
   display: inline-flex;
   align-items: center;

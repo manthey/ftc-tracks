@@ -42,6 +42,28 @@ const State = {
   videos: {},
 };
 
+/* Live log following: poll a robot or simulator log web server (port 6955,
+ * see the BioBuzz LogWebServer) and keep the most recent telemetry log loaded
+ * as the robot appends to it, switching to a newer log file when one starts.
+ * The file tail is polled at pollMs (20 Hz) and the file listing at listMs
+ * (1 Hz); new bytes are appended to the parsed LogRecord incrementally, so
+ * per-poll cost is proportional to the new data, not the whole log. */
+const Live = {
+  active: false,
+  base: '', // origin of the log web server, e.g. http://192.168.43.1:6955
+  file: null, // name of the log file being followed
+  log: null, // the LogRecord being built incrementally
+  offset: 0, // bytes of the followed file already consumed into log
+  pending: '', // complete lines held back because a quoted field spans a fetch boundary
+  busy: false, // a poll is in flight; skip overlapping polls
+  timer: null,
+  uiTimer: null,
+  pollMs: 50, // 20 Hz tail
+  listMs: 1000, // listing only needs to notice new files
+  listedAt: 0,
+  nextPoll: 0, // absolute time the next poll is due (self-correcting pacing)
+};
+
 const DEFAULT_LAYOUT = [
   { x: 0, y: 0, w: 4, h: 2, id: 'control' },
   { x: 0, y: 2, w: 4, h: 1, id: 'playback' },
@@ -61,105 +83,156 @@ class LogRecord {
     this.data = [];
     this.telemetry = [];
     this.tkeys = {};
-    const keys = {};
     this.orderedKeys = [];
-    let telemetry;
-    let record;
-    let t0 = undefined;
-    let count = 0;
-    for (const line of Papa.parse(rawdata).data) {
-      if (line.length < 5) {
-        continue;
+    // incremental parse state: append() can be called repeatedly with more
+    // text (live log tailing) and yields the same result as parsing it all
+    // at once would have
+    this._pendingSnap = -1; // index in data of the snapshot of the trailing record, -1 when not yet snapshotted
+    this._p = { keys: {}, record: undefined, telemetry: undefined, t0: undefined };
+    if (rawdata) {
+      this.append(rawdata);
+    }
+  }
+
+  /** True once the record holds at least two complete loop records. */
+  get valid() {
+    return this.data.length >= 2;
+  }
+
+  /** Parse additional CSV text (complete lines) into the record. When strict,
+   * returns false without processing if a quoted field is left unterminated
+   * (a fetch boundary split it; the caller retries once more text arrives). */
+  append(rawdata, strict) {
+    if (!rawdata) {
+      return true;
+    }
+    const parsed = Papa.parse(rawdata);
+    if (strict && parsed.errors.some((e) => e.code === 'MissingQuotes' || e.code === 'UnterminatedQuote')) {
+      return false;
+    }
+    for (const line of parsed.data) {
+      this._processLine(line);
+    }
+    this._finalize();
+    return true;
+  }
+
+  _processLine(line) {
+    const p = this._p;
+    if (line.length < 5) {
+      return;
+    }
+    const key = line[3];
+    if (key === 'loop time') {
+      if (p.record) {
+        this.data.push({ ...p.record });
+        this.telemetry.push({ ...p.telemetry });
+        this._pendingSnap = -1;
+        p.record = { ...p.record };
+        p.telemetry = { ...p.telemetry };
+      } else {
+        p.record = {};
+        p.telemetry = {};
       }
-      const key = line[3];
-      if (key === 'loop time') {
-        record = record ? (this.data.push({ ...record }), { ...record }) : {};
-        // we only log changes in telemetry values, which means we can't tell if we skipped logging a value or it
-        // did not change
-        telemetry = telemetry ? (this.telemetry.push({ ...telemetry }), { ...telemetry }) : {};
-        const t = parseFloat(line[0]);
-        t0 = t0 ?? t;
-        keys.time = keys.time !== undefined ? keys.time : Object.keys(keys).length;
-        keys.count = keys.count || Object.keys(keys).length;
-        record.time = t - t0;
-        this.duration = record.time;
-        record.count = this.data.length;
-      }
-      if (t0 === undefined) {
-        if (key !== 'caption') {
-          if (this.ikeys[key] === undefined) {
-            this.ikeys[key] = Object.keys(this.ikeys).length;
-          }
-          this.init[key] = line[4];
+      // we only log changes in telemetry values, which means we can't tell if we skipped logging a value or it
+      // did not change
+      const t = parseFloat(line[0]);
+      p.t0 = p.t0 ?? t;
+      p.keys.time = p.keys.time !== undefined ? p.keys.time : Object.keys(p.keys).length;
+      p.keys.count = p.keys.count || Object.keys(p.keys).length;
+      p.record.time = t - p.t0;
+      this.duration = p.record.time;
+      p.record.count = this.data.length;
+    }
+    if (p.t0 === undefined) {
+      if (key !== 'caption') {
+        if (this.ikeys[key] === undefined) {
+          this.ikeys[key] = Object.keys(this.ikeys).length;
         }
-        continue;
+        this.init[key] = line[4];
       }
-      if (this.tkeys[key] === undefined) {
-        this.tkeys[key] = Object.keys(this.tkeys).length;
+      return;
+    }
+    if (this.tkeys[key] === undefined) {
+      this.tkeys[key] = Object.keys(this.tkeys).length;
+    }
+    p.telemetry[key] = line[4];
+    let nums = null;
+    let labels = null;
+    if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
+      const match = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
+      if (match) {
+        nums = match.split(/\s+/).map(parseFloat);
       }
-      telemetry[key] = line[4];
-      let nums = null;
-      let labels = null;
-      if (!/[a-zA-Z][0-9+\-.]/.test(line[4])) {
-        const match = line[4].replace(/[^0-9+\-.]+/g, ' ').trim();
-        if (match) {
-          nums = match.split(/\s+/).map(parseFloat);
-        }
-        // when every number is prefixed by a word label (e.g. "LX 0.000" or
-        // "left: 0"), remember the labels so the exposed keys can use them
-        if (nums && nums.length > 1) {
-          const pairs = [];
-          let pending = null;
-          let ok = true;
-          line[4].trim().split(/\s+/).forEach((tok) => {
-            const lbl = tok.match(/^([A-Za-z]+)[:=]?$/);
-            if (lbl) {
-              if (pending !== null) {
-                ok = false;
-              }
-              pending = lbl[1];
-              return;
-            }
-            const n = parseFloat(tok);
-            if (isFinite(n)) {
-              pairs.push([pending, n]);
-              pending = null;
-            } else {
+      // when every number is prefixed by a word label (e.g. "LX 0.000" or
+      // "left: 0"), remember the labels so the exposed keys can use them
+      if (nums && nums.length > 1) {
+        const pairs = [];
+        let pending = null;
+        let ok = true;
+        line[4].trim().split(/\s+/).forEach((tok) => {
+          const lbl = tok.match(/^([A-Za-z]+)[:=]?$/);
+          if (lbl) {
+            if (pending !== null) {
               ok = false;
             }
-          });
-          if (ok && pending === null && pairs.length === nums.length && pairs.every((p) => p[0] !== null) && new Set(pairs.map((p) => p[0])).size === pairs.length) {
-            labels = pairs.map((p) => p[0]);
+            pending = lbl[1];
+            return;
           }
+          const n = parseFloat(tok);
+          if (isFinite(n)) {
+            pairs.push([pending, n]);
+            pending = null;
+          } else {
+            ok = false;
+          }
+        });
+        if (ok && pending === null && pairs.length === nums.length && pairs.every((pr) => pr[0] !== null) && new Set(pairs.map((pr) => pr[0])).size === pairs.length) {
+          labels = pairs.map((pr) => pr[0]);
         }
       }
-      if (!nums || nums.length <= 1) {
-        keys[key] = keys[key] || Object.keys(keys).length;
-        record[key] = nums?.length ? nums[0] : line[4];
-      } else {
-        nums.forEach((n, i) => {
-          const k = labels ? `${key} ${labels[i]}` : `${key} ${i + 1}`;
-          keys[k] = keys[k] || Object.keys(keys).length;
-          record[k] = n;
-        });
-      }
     }
-    if (record) {
-      this.data.push(record);
-      this.telemetry.push(telemetry);
-      this.keys = keys;
-      // Keys that only appear before the OpMode starts (start position,
-      // alliance, ...) are never logged again, so they get flushed from the
-      // record stream and the initial conditions are lost.  Seed their final
-      // pre-start values into every record; keys that do continue after start
-      // already carry their values through the change based logging.
+    if (!nums || nums.length <= 1) {
+      p.keys[key] = p.keys[key] || Object.keys(p.keys).length;
+      p.record[key] = nums?.length ? nums[0] : line[4];
+    } else {
+      nums.forEach((n, i) => {
+        const k = labels ? `${key} ${labels[i]}` : `${key} ${i + 1}`;
+        p.keys[k] = p.keys[k] || Object.keys(p.keys).length;
+        p.record[k] = n;
+      });
+    }
+  }
+
+  _finalize() {
+    const p = this._p;
+    if (!p.record) {
+      return;
+    }
+    if (this._pendingSnap >= 0) {
+      // the trailing record was already snapshotted by a previous append and
+      // more rows continued it, so update the snapshot in place
+      Object.assign(this.data[this._pendingSnap], p.record);
+      Object.assign(this.telemetry[this._pendingSnap], p.telemetry);
+    } else {
+      this.data.push({ ...p.record });
+      this.telemetry.push({ ...p.telemetry });
+      this._pendingSnap = this.data.length - 1;
+    }
+    this.keys = p.keys;
+    // Keys that only appear before the OpMode starts (start position,
+    // alliance, ...) are never logged again, so they get flushed from the
+    // record stream and the initial conditions are lost.  Seed their final
+    // pre-start values into every record; keys that do continue after start
+    // already carry their values through the change based logging.
+    if (this.data.length) {
       Object.keys(this.init).forEach((k) => {
         if (this.tkeys[k] === undefined) {
           // + 2000 orders these after all regular and space prefixed keys in
           // the telemetry table (telemetryKeys adds 1000 for space prefixed
           // keys), so the initial conditions read as a block at the end
           this.tkeys[k] = Object.keys(this.tkeys).length + 2000;
-          keys[k] = Object.keys(keys).length;
+          p.keys[k] = Object.keys(p.keys).length;
           this.data.forEach((r) => {
             r[k] = this.init[k];
           });
@@ -168,9 +241,6 @@ class LogRecord {
           });
         }
       });
-    }
-    if (this.data.length < 2) {
-      this.data = undefined;
     }
   }
 
@@ -408,6 +478,16 @@ function initGrid() {
     updateLogs(true);
   });
   document.getElementById('remove').onclick = removeLogs;
+  document.getElementById('live-host').value = localStorage.getItem('live-host')
+    // when the viewer itself was served by the robot's log web server,
+    // default the host to that same address
+    || (/^https?:/.test(location.protocol) ? location.host : '');
+  document.getElementById('live-host').addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter') {
+      toggleLive();
+    }
+  });
+  document.getElementById('live').onclick = toggleLive;
   document.getElementById('time').addEventListener('input', () => setTime($('#time').val(), 'time'));
   document.getElementById('time-value').addEventListener('input', () => setTime($('#time-value').val(), 'time-value'));
   document.getElementById('speed').addEventListener('input', () => {
@@ -551,7 +631,7 @@ function applyGraphOptions() {
   drawGraph(0);
 }
 
-function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats) {
+function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix, traces, cats, traceMeta) {
   let yAll, text, yAll2;
   let hovertemplate = '%{y:.5g}';
   if (!State.columnDict[ykey]) {
@@ -612,6 +692,9 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
         line: { dash, width: 2, color: baseColor },
         hovertemplate: hovertemplate,
       });
+      if (traceMeta) {
+        traceMeta.push({ log: log.filename, ykey, yaxis });
+      }
     } else {
       const segs = [];
       let cur = { cat: cats.values[0], start: 0 };
@@ -641,6 +724,9 @@ function addPlotlySeries(log, gr, xVals, ykey, traceIdx, yaxis, dashList, suffix
           customdata: cf.map((c) => [cats.names[c]]),
           hovertemplate: hovertemplate + ' [%{customdata[0]}]',
         });
+        if (traceMeta) {
+          traceMeta.push(null); // segmented traces cannot be extended incrementally
+        }
       });
     }
   });
@@ -669,11 +755,17 @@ function drawGraph(graphNumber) {
   const gr = State.graphs[graphNumber];
   if (!gr.x || !(gr.left.length + gr.right.length)) {
     document.getElementById('graph-plot').innerHTML = '';
+    State._graph = undefined;
     updateGraphCursor();
     return;
   }
   const logs = State.sortedLogs.filter((log) => log.selected);
+  if (graphNumber === 0 && tryExtendGraph(gr, logs)) {
+    updateGraphCursor();
+    return;
+  }
   const traces = [];
+  const traceMeta = [];
   logs.forEach((log) => {
     const xVals = log.data.map((r) => {
       const v = r[gr.x];
@@ -686,10 +778,10 @@ function drawGraph(graphNumber) {
       cats.values = log.data.map((r) => cats.order[r[gr.category]]);
     }
     gr.left.forEach((ykey, idx) => {
-      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats);
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y', LDASH, '', traces, cats, traceMeta);
     });
     gr.right.forEach((ykey, idx) => {
-      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y2', RDASH, ' (R)', traces);
+      addPlotlySeries(log, gr, xVals, ykey, traces.length, 'y2', RDASH, ' (R)', traces, undefined, traceMeta);
     });
   });
 
@@ -725,6 +817,101 @@ function drawGraph(graphNumber) {
       }
       updateGraphCursor();
     });
+  // remember what was drawn so a later live update can extend the traces
+  // incrementally instead of redrawing everything
+  State._graph = {
+    gr: { x: gr.x, category: gr.category, left: [...gr.left], right: [...gr.right] },
+    meta: traceMeta,
+    lengths: Object.fromEntries(logs.map((log) => [log.filename, log.data.length])),
+  };
+}
+
+/** Extend the live graph with just the newly appended rows. Returns false (and
+ * leaves the drawing alone) whenever anything structural changed, in which
+ * case the caller falls back to a full redraw. This keeps the per-update cost
+ * proportional to the new data instead of the whole log, which matters once a
+ * live log grows large. */
+function tryExtendGraph(gr, logs) {
+  const prev = State._graph;
+  const gd = document.getElementById('graph-plot');
+  if (!prev || !gd.data || !gd.data.length) {
+    return false;
+  }
+  if (prev.gr.x !== gr.x || prev.gr.category !== gr.category
+      || prev.gr.left.join() !== gr.left.join() || prev.gr.right.join() !== gr.right.join()) {
+    return false;
+  }
+  if (gr.category) {
+    return false; // category segmentation: full redraw
+  }
+  // every previously drawn log must still be selected and only have grown
+  if (logs.length !== Object.keys(prev.lengths).length) {
+    return false;
+  }
+  const lengths = {};
+  for (const log of logs) {
+    const len = prev.lengths[log.filename];
+    if (len === undefined || log.data.length < len) {
+      return false;
+    }
+    lengths[log.filename] = log.data.length;
+  }
+  // every configured series must still be numeric
+  for (const ykey of [...gr.left, ...gr.right]) {
+    const col = State.columnDict[ykey];
+    if (!col || col.text) {
+      return false;
+    }
+  }
+  const xArrs = [];
+  const yArrs = [];
+  const indices = [];
+  for (let i = 0; i < gd.data.length; i++) {
+    const m = prev.meta[i];
+    if (!m) {
+      return false;
+    }
+    const log = Logs[m.log];
+    if (!log || !log.selected) {
+      return false;
+    }
+    const start = prev.lengths[m.log];
+    if (log.data.length === start) {
+      continue; // nothing new for this trace
+    }
+    const ey = gd.data[i].y;
+    for (let k = 0; k < ey.length; k++) {
+      if (ey[k] === null) {
+        return false; // angle unwrap rewrote history: full redraw
+      }
+    }
+    const xnew = [];
+    const ynew = [];
+    let last = ey[ey.length - 1];
+    for (let r = start; r < log.data.length; r++) {
+      const yv = parseFloat(log.data[r][m.ykey]);
+      if (!isFinite(yv)) {
+        return false; // went nonnumeric: full redraw
+      }
+      if (Math.abs(yv - last) > 330) {
+        return false; // possible angle wrap: full redraw
+      }
+      const xv = log.data[r][gr.x];
+      xnew.push(isFinite(+xv) ? +xv : xv);
+      ynew.push(yv);
+      last = yv;
+    }
+    xArrs.push(xnew);
+    yArrs.push(ynew);
+    indices.push(i);
+  }
+  if (indices.length) {
+    Plotly.extendTraces(gd, { x: xArrs, y: yArrs }, indices);
+    // extendTraces does not rescale; keep the live edge in view
+    Plotly.relayout(gd, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true });
+  }
+  State._graph.lengths = lengths;
+  return true;
 }
 
 function addField() {
@@ -797,6 +984,11 @@ function startPlayTimer() {
   State.referenceTime = Date.now();
 }
 
+/** True while the log we are following is the one being played back. */
+function liveFollowSelected() {
+  return Live.active && !!Logs[Live.file]?.selected;
+}
+
 function playUpdate() {
   State.animationTimer = null;
   if (!State.playing) {
@@ -804,8 +996,13 @@ function playUpdate() {
   }
   let speed = SPEED_VALUES[$('#speed').val()] || 1;
   let newTime = (Date.now() - State.referenceTime) * 0.001 * speed + State.baseTime;
+  const atEnd = newTime >= State.maxDuration;
   setTime(Math.min(State.maxDuration, newTime), undefined, false, true);
-  if (newTime >= State.maxDuration) {
+  if (atEnd && liveFollowSelected()) {
+    // following a live log: pin at the live edge and keep rolling instead of
+    // pausing; the next poll extends maxDuration and playback continues from
+    // there, so a poll that falls behind never looks like the end
+  } else if (atEnd) {
     if (!State.continuous) {
       State.playing = false;
     } else if (newTime >= State.maxDuration + 3) {
@@ -1027,41 +1224,69 @@ function telemetryKeys() {
 }
 
 function categorizeColumns() {
-  const columns = {};
+  /* Incremental: each log remembers how many rows have already been folded
+   * into the column state, so a growing live log only scans its new rows.
+   * A full rebuild (from row 0) happens only when the set of loaded logs
+   * changes, matching what a from-scratch scan would produce. */
+  const signature = State.sortedLogs.map((log) => log.filename).join('|');
+  if (!State.columnDict || signature !== State.catSig) {
+    State.columnDict = {};
+    State.sortedLogs.forEach((log) => {
+      log._catScan = { rows: 0, keys: -1 };
+    });
+    State.catSig = signature;
+  }
+  const columns = State.columnDict;
+  const scanValue = (col, val) => {
+    if (col.text && col.unique === undefined) {
+      return; // nothing more this column can learn
+    }
+    if (val !== undefined && val !== null && val !== '' && val !== 'NaN') {
+      col.any = true;
+      if (!isFinite(val)) {
+        col.text = true;
+      }
+      if (col.unique !== undefined) {
+        // count distinct values instead of calling Object.keys().length
+        // per row; the enumeration was a large share of load time
+        if (col.unique[val] === undefined) {
+          col.unique[val] = true;
+          col.uniqCount += 1;
+        }
+        if (col.uniqCount > 50) {
+          col.unique = undefined;
+        }
+      }
+    }
+  };
   State.sortedLogs.forEach((log) => {
-    Object.keys(log.keys)
-      .sort((a, b) => log.keys[a] - log.keys[b])
-      .forEach((key) => {
+    if (!log._catScan) {
+      log._catScan = { rows: 0, keys: -1 };
+    }
+    const scan = log._catScan;
+    const keyList = Object.keys(log.keys).sort((a, b) => log.keys[a] - log.keys[b]);
+    if (scan.keys !== keyList.length) {
+      // new keys appeared: register their columns and scan their full history
+      keyList.forEach((key) => {
         if (!columns[key]) {
           columns[key] = { key: key, unique: {}, text: false, uniqCount: 0, pos: Object.keys(columns).length };
-        }
-        for (let r = 0; r < log.data.length && (columns[key].unique !== undefined || !columns[key].text); r += 1) {
-          const row = log.data[r];
-          const val = row[key];
-          if (val !== undefined && val !== null && val !== '' && val !== 'NaN') {
-            columns[key].any = true;
-            if (!isFinite(val)) {
-              columns[key].text = true;
-              if (key == 'Distance Left') {
-                // console.log(val);
-              }
-            }
-            if (columns[key].unique !== undefined) {
-              // count distinct values instead of calling Object.keys().length
-              // per row; the enumeration was a large share of load time
-              if (columns[key].unique[val] === undefined) {
-                columns[key].unique[val] = true;
-                columns[key].uniqCount += 1;
-              }
-              if (columns[key].uniqCount > 50) {
-                columns[key].unique = undefined;
-              }
-            }
+          for (let r = 0; r < log.data.length; r += 1) {
+            scanValue(columns[key], log.data[r][key]);
           }
         }
       });
+      scan.keys = keyList.length;
+    }
+    for (let r = scan.rows; r < log.data.length; r += 1) {
+      const row = log.data[r];
+      keyList.forEach((key) => {
+        if (columns[key]) {
+          scanValue(columns[key], row[key]);
+        }
+      });
+    }
+    scan.rows = log.data.length;
   });
-  State.columnDict = columns;
   State.columns = Object.values(columns)
     .sort((a, b) => a.pos - b.pos)
     .filter((col) => col.any);
@@ -1205,7 +1430,7 @@ function loadFiles(evt) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       const log = new LogRecord(evt.target.result, file.name);
-      if (log.data) {
+      if (log.valid) {
         if (Logs[log.filename] !== undefined) {
           log.selected = Logs[log.filename].selected;
         }
@@ -1308,6 +1533,193 @@ function syncVideos(currentTime) {
       element.currentTime = clampedVideoTime;
     }
   });
+}
+
+function liveStatus(message) {
+  document.getElementById('live-status').textContent = message;
+}
+
+function stopLive() {
+  Live.active = false;
+  clearTimeout(Live.timer);
+  clearTimeout(Live.uiTimer);
+  Live.timer = null;
+  Live.uiTimer = null;
+  Live.busy = false;
+  $('#live').text('Live');
+  liveStatus('');
+}
+
+async function toggleLive() {
+  if (Live.active) {
+    stopLive();
+    return;
+  }
+  const host = document.getElementById('live-host').value.trim();
+  if (!host) {
+    liveStatus('enter a robot ip');
+    return;
+  }
+  localStorage.setItem('live-host', host);
+  // accept a bare host, host:port, or a full origin; the log server's default
+  // port is added when no port was entered
+  const parsed = host.match(/^(https?:\/\/)?([^/:?#]+)(?::(\d+))?(?:\/.*)?$/);
+  if (!parsed) {
+    liveStatus('invalid address');
+    return;
+  }
+  Live.base = `${parsed[1] || 'http://'}${parsed[2]}:${parsed[3] || 6955}`;
+  Live.active = true;
+  Live.file = null;
+  Live.log = null;
+  Live.offset = 0;
+  Live.pending = '';
+  Live.listedAt = 0;
+  Live.nextPoll = 0;
+  $('#live').text('Stop');
+  liveStatus('connecting...');
+  await livePoll();
+}
+
+async function livePoll() {
+  if (!Live.active || Live.busy) {
+    return;
+  }
+  Live.busy = true;
+  try {
+    // refresh the listing only often enough to notice new files; the tail
+    // of the followed file is fetched every poll
+    const now = Date.now();
+    if (!Live.file || now - Live.listedAt >= (Live.file ? Live.listMs : 250)) {
+      Live.listedAt = now;
+      const response = await fetch(`${Live.base}/api/logs`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const listing = await response.json();
+      // the most recent log: file names carry a zero-padded sequence number
+      // (log_NNNN_...), so the greatest name is the newest. mtime is not used
+      // because the robot clock sometimes starts at epoch 0.
+      const newest = listing.reduce(
+        (best, entry) => (!best || entry.name > best.name ? entry : best),
+        null,
+      );
+      if (!newest) {
+        Live.file = null;
+        Live.log = null;
+        Live.offset = 0;
+        Live.pending = '';
+        liveStatus('no logs on robot');
+        return;
+      }
+      if (newest.name !== Live.file) {
+        // a newer log started: follow it from the beginning. The previously
+        // followed log stays in the list (unselected) so it can still be
+        // reviewed after the run.
+        const previous = Live.file;
+        Live.file = newest.name;
+        Live.log = new LogRecord(undefined, newest.name);
+        Live.offset = 0;
+        Live.pending = '';
+        if (previous) {
+          if (Logs[previous]) {
+            Logs[previous].selected = false;
+          }
+          // updateLogs() re-reads selection from the DOM select, so the option
+          // has to be deselected there as well
+          const option = [...document.getElementById('logs').options].find((o) => o.value === previous);
+          if (option) {
+            option.selected = false;
+          }
+        }
+      }
+    }
+    if (Live.file) {
+      await liveFetchMore();
+    }
+  } catch (err) {
+    liveStatus(`unreachable (${err})`);
+  } finally {
+    Live.busy = false;
+  }
+  if (Live.active) {
+    // self-correcting pacing: schedule against the absolute due time so a
+    // late timer or slow poll does not drift the average rate below pollMs
+    const now = Date.now();
+    Live.nextPoll = (Live.nextPoll > now - 1000 ? Live.nextPoll : now) + Live.pollMs;
+    Live.timer = setTimeout(livePoll, Math.max(0, Live.nextPoll - Date.now()));
+  }
+}
+
+/** Fetch the followed log from Live.offset onward and feed any new complete
+ * lines into the incrementally parsed LogRecord. */
+async function liveFetchMore() {
+  const name = Live.file;
+  const response = await fetch(`${Live.base}/log/${encodeURIComponent(name)}`, {
+    headers: { Range: `bytes=${Live.offset}-` },
+  });
+  if (response.status === 416) {
+    return; // range past the end: no new data
+  }
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!bytes.length) {
+    return;
+  }
+  const chunk = new TextDecoder().decode(bytes);
+  // only consume through the last complete line: the tail of a file being
+  // written may end mid-line, and a partial line would parse wrong
+  const lastNewline = chunk.lastIndexOf('\n');
+  if (lastNewline < 0) {
+    return; // nothing complete yet; retry from the same offset next poll
+  }
+  const complete = Live.pending + chunk.slice(0, lastNewline + 1);
+  if (!Live.log.append(complete, true)) {
+    // a quoted field spans the fetch boundary; hold the text back and retry
+    // it together with the next poll's bytes (give up on very large held
+    // back text so a corrupt file cannot stall following forever)
+    if (complete.length < 5 * 1024 * 1024) {
+      Live.pending = complete;
+      return;
+    }
+    Live.log.append(complete);
+  }
+  Live.pending = '';
+  Live.offset += new TextEncoder().encode(complete).length;
+  scheduleLiveUpdate();
+}
+
+/** Publish the growing LogRecord into the log list and refresh the UI. The
+ * per-poll data ingest is cheap, but updateLogs() (column categorization plus
+ * a full Plotly redraw) costs O(log size), so it is throttled; telemetry
+ * values and the graph cursor still track the live edge every frame via
+ * updateNow() from the playback loop. */
+function scheduleLiveUpdate() {
+  if (Live.uiTimer || !Live.log) {
+    return;
+  }
+  Live.uiTimer = setTimeout(() => {
+    Live.uiTimer = null;
+    if (!Live.active || !Live.log || !Live.log.valid) {
+      return;
+    }
+    const name = Live.file;
+    const existing = Logs[name];
+    const fresh = !existing;
+    Live.log.selected = existing ? existing.selected : true;
+    if (existing !== Live.log) {
+      Logs[name] = Live.log;
+    }
+    updateLogs();
+    if (fresh) {
+      // first time this log appears: jump to the live edge and start playing
+      setTime(Live.log.duration);
+      startPlayTimer();
+    }
+    liveStatus(`live: ${name} (${Live.log.data.length} rows)`);
+  }, 500);
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);
