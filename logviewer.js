@@ -58,6 +58,9 @@ const Live = {
   busy: false, // a poll is in flight; skip overlapping polls
   timer: null,
   uiTimer: null,
+  videoTimer: null, // live video poll loop
+  videoListing: null, // cached /api/videos response
+  videoListedAt: 0,
   pollMs: 50, // 20 Hz tail
   listMs: 1000, // listing only needs to notice new files
   listedAt: 0,
@@ -1133,6 +1136,7 @@ function updateNow() {
   updateGraphCursor();
   // DWM::
   syncVideos(State.time);
+  syncLiveVideos(State.time);
 }
 
 function updateGraphCursor() {
@@ -1485,12 +1489,25 @@ function initVideoTile(tileId) {
     video.style.objectFit = 'contain';
     videoContainer.appendChild(video);
   }
+  let canvas = videoContainer.querySelector('canvas.video-canvas');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.className = 'video-canvas';
+    videoContainer.appendChild(canvas);
+  }
   State.videos[tileId] = {
     element: video,
     fileUrl: null,
     duration: NaN,
     offset: 0,
+    canvas,
+    nameEl: panelEl.querySelector('.video-name'),
+    liveBtn: panelEl.querySelector('.video-live-btn'),
+    live: null,
   };
+  if (State.videos[tileId].liveBtn) {
+    State.videos[tileId].liveBtn.addEventListener('click', () => toggleVideoLive(tileId));
+  }
   fileInput.addEventListener('change', (e) => handleVideoFileSelect(e, tileId));
 }
 
@@ -1498,6 +1515,10 @@ function handleVideoFileSelect(event, tileId) {
   const file = event.target.files[0];
   if (!file || !State.videos[tileId]) return;
   const videoInfo = State.videos[tileId];
+  // a locally chosen file takes over the tile from a live stream
+  if (videoInfo.live) {
+    detachVideoLive(videoInfo);
+  }
   // Revoke old URL if exists
   if (videoInfo.fileUrl) {
     URL.revokeObjectURL(videoInfo.fileUrl);
@@ -1738,6 +1759,528 @@ function scheduleLiveUpdate() {
     }
     liveStatus(`live: ${name} (${Live.log.data.length} rows)`);
   }, Live.pollMs);
+}
+
+/* Live video: MJPEG streams served by the robot's log web server. Each frame
+ * in the file is SOI + a COM marker holding ASCII milliseconds + the JPEG +
+ * EOI; since the run started, the milliseconds align with the CSV log's
+ * elapsed column. The camera pipeline encodes from a BGR buffer, so decoded
+ * frames need their red and blue channels reversed. When the tile is at the
+ * live edge it shows the newest frame as it arrives; scrubbing back seeks by
+ * binary-searching the file over byte offsets with the COM timestamps. */
+
+class MjpegStream {
+  constructor(base, name, size) {
+    this.base = base;
+    this.name = name;
+    this.size = size || 0; // bytes, from the /api/videos listing
+    this.offset = 0; // bytes consumed from the head of the file
+    this.tail = new Uint8Array(0); // bytes after the last complete frame
+    this.busy = false;
+    this.lastFrame = null; // {ts, bytes} of the most recent complete frame
+  }
+
+  async fetchChunk(start, endExclusive) {
+    const response = await fetch(`${this.base}/video/${encodeURIComponent(this.name)}`, {
+      headers: { Range: `bytes=${start}-${endExclusive - 1}` },
+    });
+    if (response.status === 416) {
+      // range past the end (no new data); Content-Range carries the file size
+      const contentRange = response.headers.get('Content-Range');
+      const match = contentRange && contentRange.match(/\/(\d+)\s*$/);
+      if (match) {
+        this.size = parseInt(match[1], 10);
+      }
+      return new Uint8Array(0);
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /** Fetch new bytes and hand every newly completed frame to onFrame. */
+  async poll() {
+    if (this.busy) {
+      return;
+    }
+    this.busy = true;
+    try {
+      const bytes = await this.fetchChunk(this.offset, this.offset + 1024 * 1024);
+      if (!bytes.length) {
+        return;
+      }
+      const combined = concatBytes(this.tail, bytes);
+      const parsed = extractMjpegFrames(combined);
+      this.offset += parsed.keepFrom;
+      this.tail = combined.slice(parsed.keepFrom);
+      for (const frame of parsed.frames) {
+        this.lastFrame = frame;
+        if (this.onFrame) {
+          this.onFrame(frame);
+        }
+      }
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** Find the last frame whose timestamp is at or before tsMs (or, when the
+   * target predates every frame, the earliest frame), fetching only small
+   * ranges: a binary search over byte offsets, then one linear scan. */
+  async frameAt(tsMs) {
+    if (!this.size) {
+      return null;
+    }
+    const size = this.size;
+    const CHUNK = 256 * 1024;
+    let lo = 0; // the target frame starts at or after lo
+    let hi = size; // and before hi
+    let guard = 0;
+    while (hi - lo > CHUNK && guard++ < 40) {
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const windowStart = Math.max(0, mid - CHUNK);
+      const probe = await this.fetchChunk(windowStart, Math.min(size, mid + CHUNK));
+      const midRel = mid - windowStart;
+      // the last frame that starts at or before mid
+      let frameStart = -1;
+      let pos = 0;
+      while (true) {
+        const start = findFrameStart(probe, pos);
+        if (start < 0 || start > midRel) {
+          break;
+        }
+        frameStart = start;
+        pos = start + 2;
+      }
+      if (frameStart < 0) {
+        break; // mid is inside the first frame or frames are huge; fall through to the linear scan
+      }
+      const ts = readFrameMs(probe, frameStart);
+      if (ts !== null && ts >= tsMs) {
+        hi = windowStart + frameStart;
+      } else {
+        const end = mjpegFrameEnd(probe, frameStart);
+        lo = end < 0 ? windowStart + frameStart + 1 : windowStart + end;
+      }
+    }
+    // scan a window around the convergence point for the last frame at or
+    // before the target time
+    const from = Math.max(0, lo - CHUNK);
+    const to = Math.min(size, lo + 2 * CHUNK);
+    const window = await this.fetchChunk(from, to);
+    let best = null;
+    let first = null;
+    let pos = 0;
+    while (true) {
+      const start = findFrameStart(window, pos);
+      if (start < 0) {
+        break;
+      }
+      const end = mjpegFrameEnd(window, start);
+      if (end < 0) {
+        break;
+      }
+      const ts = readFrameMs(window, start);
+      const frame = { ts, bytes: window.slice(start, end) };
+      if (first === null) {
+        first = frame;
+      }
+      if (ts !== null && ts <= tsMs) {
+        best = frame;
+      }
+      pos = end;
+    }
+    return best || first;
+  }
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}
+
+function findByteSequence(bytes, seq, from) {
+  outer: for (let i = from; i <= bytes.length - seq.length; i++) {
+    for (let j = 0; j < seq.length; j++) {
+      if (bytes[i + j] !== seq[j]) {
+        continue outer;
+      }
+    }
+    return i;
+  }
+  return -1;
+}
+
+/** The first frame start (SOI followed by the writer's COM marker) at or
+ * after `from`, or -1. The COM check keeps entropy-data bytes from being
+ * mistaken for a frame start. */
+function findFrameStart(bytes, from) {
+  let pos = from;
+  while (true) {
+    const soi = findByteSequence(bytes, [0xFF, 0xD8], pos);
+    if (soi < 0) {
+      return -1;
+    }
+    if (bytes[soi + 2] === 0xFF && bytes[soi + 3] === 0xFE) {
+      return soi;
+    }
+    pos = soi + 2;
+  }
+}
+
+/** Milliseconds from the COM marker inserted after the SOI, or null. */
+function readFrameMs(bytes, soi) {
+  if (bytes[soi + 2] === 0xFF && bytes[soi + 3] === 0xFE) {
+    const length = (bytes[soi + 4] << 8) | bytes[soi + 5];
+    const text = new TextDecoder().decode(bytes.slice(soi + 6, soi + 4 + length));
+    const ms = parseInt(text, 10);
+    return isFinite(ms) ? ms : null;
+  }
+  return null;
+}
+
+/** Index just past the frame's EOI, walking the JPEG marker structure, or -1
+ * when the frame is incomplete in `bytes`. */
+function mjpegFrameEnd(bytes, soi) {
+  let i = soi + 2;
+  while (i + 1 < bytes.length) {
+    if (bytes[i] !== 0xFF) {
+      return -1; // corrupt
+    }
+    const marker = bytes[i + 1];
+    if (marker === 0xFF) {
+      i += 1; // fill byte
+      continue;
+    }
+    if (marker === 0xD9) {
+      return i + 2; // EOI
+    }
+    if (marker === 0xDA) {
+      // SOS: entropy-coded data follows; FFD9 cannot appear inside it because
+      // of byte stuffing, so scan straight for the frame-ending EOI
+      const eoi = findByteSequence(bytes, [0xFF, 0xD9], i + 2);
+      return eoi < 0 ? -1 : eoi + 2;
+    }
+    if (marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      i += 2; // standalone markers without a length field
+      continue;
+    }
+    if (i + 3 >= bytes.length) {
+      return -1;
+    }
+    i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
+  }
+  return -1;
+}
+
+/** Pull every complete frame out of `bytes`; keepFrom is the offset from
+ * which the remaining (incomplete) tail should be kept. */
+function extractMjpegFrames(bytes) {
+  const frames = [];
+  let pos = 0;
+  let keepFrom = Math.max(0, bytes.length - 3); // keep a few bytes for a split marker
+  while (true) {
+    const start = findFrameStart(bytes, pos);
+    if (start < 0) {
+      break;
+    }
+    const end = mjpegFrameEnd(bytes, start);
+    if (end < 0) {
+      keepFrom = start; // incomplete frame: keep it for the next poll
+      break;
+    }
+    frames.push({ ts: readFrameMs(bytes, start), bytes: bytes.slice(start, end) });
+    pos = end;
+    keepFrom = end;
+  }
+  return { frames, keepFrom };
+}
+
+function liveVideoLabel(live, ts) {
+  return `${live.name.replace(/\.mjpeg$/, '')} ${(ts / 1000).toFixed(2)}s`;
+}
+
+async function drawLiveFrame(tileId, frame, label) {
+  const info = State.videos[tileId];
+  if (!info || !info.live) {
+    return;
+  }
+  const live = info.live;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([frame.bytes], { type: 'image/jpeg' }));
+  } catch (err) {
+    return;
+  }
+  if (!info.live) {
+    bitmap.close();
+    return; // detached while decoding
+  }
+  const canvas = live.canvas;
+  if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+  }
+  const ctx = live.ctx || (live.ctx = canvas.getContext('2d'));
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  // the frames were encoded from a BGR buffer: reverse the channels
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const red = data[i];
+    data[i] = data[i + 2];
+    data[i + 2] = red;
+  }
+  ctx.putImageData(image, 0, 0);
+  live.shownTs = frame.ts;
+  live.shownFrame = frame;
+  if (label !== undefined && info.nameEl) {
+    info.nameEl.textContent = label;
+  }
+}
+
+async function videoListing() {
+  const now = Date.now();
+  if (Live.videoListing && now - (Live.videoListedAt || 0) < 1000) {
+    return Live.videoListing;
+  }
+  Live.videoListedAt = now;
+  const response = await fetch(`${Live.base}/api/videos`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  Live.videoListing = await response.json();
+  return Live.videoListing;
+}
+
+/** The videos worth following for this run, ascending by name: those whose
+ * number matches the followed log when there are any, otherwise all. */
+function matchesLogNumber(name, logNumber) {
+  return name.startsWith(`video_${logNumber}_`) || name === `video_${logNumber}.mjpeg`;
+}
+
+function preferredVideos(listing) {
+  const names = listing.map((entry) => entry.name).sort();
+  const logNumber = Live.file ? (Live.file.match(/^log_(\d+)_/) || [])[1] : null;
+  if (logNumber) {
+    const matching = names.filter((name) => matchesLogNumber(name, logNumber));
+    if (matching.length) {
+      return matching;
+    }
+  }
+  return names;
+}
+
+/** Blank a live tile: no stream to show for the current run. */
+function clearVideoLive(info, message) {
+  const live = info.live;
+  if (!live) {
+    return;
+  }
+  live.stream = null;
+  live.name = null;
+  live.shownTs = null;
+  live.shownFrame = null;
+  live.seekTarget = null;
+  live.matchIdx = -1;
+  const ctx = live.ctx || (live.ctx = live.canvas.getContext('2d'));
+  ctx.clearRect(0, 0, live.canvas.width || 1, live.canvas.height || 1);
+  if (info.nameEl) {
+    info.nameEl.textContent = message;
+  }
+}
+
+async function attachVideoStream(info, listing) {
+  const live = info.live;
+  if (!live || live.attaching) {
+    return;
+  }
+  live.attaching = true;
+  try {
+    if (!listing) {
+      listing = await videoListing();
+    }
+    const matches = preferredVideos(listing);
+    if (!matches.length) {
+      clearVideoLive(info, 'no videos for this run');
+      return;
+    }
+    if (live.matchIdx < 0) {
+      // first attach: show a stream this run has that no other video tile is
+      // already showing, so two cameras end up on the two tiles
+      const claimed = new Set(Object.values(State.videos)
+        .filter((other) => other !== info && other.live && other.live.name)
+        .map((other) => other.live.name));
+      const free = matches.filter((name) => !claimed.has(name));
+      live.matchIdx = matches.indexOf(free.length ? free[0] : matches[0]);
+    } else {
+      live.matchIdx = live.matchIdx % matches.length;
+    }
+    const name = matches[live.matchIdx];
+    if (name === live.name && live.stream) {
+      return;
+    }
+    live.name = name;
+    const entry = listing.find((e) => e.name === name);
+    live.stream = new MjpegStream(Live.base, name, entry ? entry.size : 0);
+    // start at the tail of an existing recording so attaching mid-run shows the
+    // live edge right away; seeking can still reach any earlier time
+    live.stream.offset = Math.max(0, live.stream.size - 1024 * 1024);
+    live.shownTs = null;
+    if (info.nameEl) {
+      info.nameEl.textContent = name.replace(/\.mjpeg$/, '');
+    }
+  } finally {
+    live.attaching = false;
+  }
+}
+
+function detachVideoLive(info) {
+  if (!info.live) {
+    return;
+  }
+  info.live = null;
+  info.canvas.classList.remove('active');
+  info.element.style.display = '';
+  if (info.nameEl) {
+    info.nameEl.textContent = '';
+  }
+  if (info.liveBtn) {
+    info.liveBtn.textContent = 'Live';
+  }
+}
+
+async function toggleVideoLive(tileId) {
+  const info = State.videos[tileId];
+  if (!info) {
+    return;
+  }
+  if (!Live.base) {
+    if (info.nameEl) {
+      info.nameEl.textContent = 'enter a robot ip in the file block first';
+    }
+    return;
+  }
+  if (info.live) {
+    // cycle to the next stream of this run
+    info.live.matchIdx += 1;
+    await attachVideoStream(info);
+    return;
+  }
+  info.live = {
+    canvas: info.canvas,
+    ctx: null,
+    name: null,
+    stream: null,
+    matchIdx: -1,
+    shownTs: null,
+    seekTarget: null,
+  };
+  info.element.style.display = 'none';
+  info.canvas.classList.add('active');
+  if (info.liveBtn) {
+    info.liveBtn.textContent = 'Next';
+  }
+  await attachVideoStream(info);
+  if (!Live.videoTimer) {
+    videoPollLoop();
+  }
+}
+
+async function videoPollTile(info) {
+  const live = info.live;
+  if (!live || live.attaching) {
+    return;
+  }
+  let listing = null;
+  try {
+    listing = await videoListing();
+  } catch (err) {
+    // the listing refresh is best effort; the stream poll below reports errors
+  }
+  if (listing) {
+    const matches = preferredVideos(listing);
+    if (!matches.length) {
+      // the current run has no videos (yet): clear the panel rather than
+      // showing a stale stream from an earlier run; a later listing with
+      // videos reattaches
+      if (live.stream || live.name !== null) {
+        clearVideoLive(info, 'no videos for this run');
+      }
+      return;
+    }
+    if (!live.name || !matches.includes(live.name)) {
+      // attach when the run's videos appear, or re-attach when the followed
+      // stream belongs to a different run (e.g. a new run started)
+      if (!live.name) {
+        live.matchIdx = -1;
+      }
+      await attachVideoStream(info, listing);
+    }
+  }
+  if (!info.live || !info.live.stream || info.live.attaching) {
+    return;
+  }
+  const stream = info.live.stream;
+  try {
+    await stream.poll();
+  } catch (err) {
+    // the stream may have been detached or replaced while the request was in
+    // flight; only report errors for the stream that is still current
+    if (info.live && info.live.stream === stream && info.nameEl) {
+      info.nameEl.textContent = `error (${err})`;
+    }
+  }
+}
+
+function videoPollLoop() {
+  Live.videoTimer = null;
+  if (!Live.base) {
+    return;
+  }
+  const liveTiles = Object.values(State.videos).filter((info) => info.live);
+  if (!liveTiles.length) {
+    return;
+  }
+  liveTiles.forEach((info) => {
+    videoPollTile(info);
+  });
+  Live.videoTimer = setTimeout(videoPollLoop, Live.pollMs);
+}
+
+/** Keep each live video tile showing the frame that belongs to the current
+ * playback time: the newest frame at the live edge, a seeked frame behind it. */
+function syncLiveVideos(time) {
+  Object.entries(State.videos).forEach(([tileId, info]) => {
+    const live = info.live;
+    if (!live || !live.stream || !live.stream.lastFrame) {
+      return;
+    }
+    const targetMs = Math.round(time * 1000);
+    const last = live.stream.lastFrame;
+    if (targetMs >= last.ts - 250) {
+      // at the live edge: draw each new frame as it arrives
+      if (live.shownTs !== last.ts) {
+        drawLiveFrame(tileId, last, liveVideoLabel(live, last.ts));
+      }
+      live.seekTarget = null;
+    } else if (live.seekTarget === null || Math.abs(targetMs - live.seekTarget) >= 200) {
+      // scrubbed away from the edge: find the frame at the playback time
+      live.seekTarget = targetMs;
+      const stream = live.stream;
+      stream.frameAt(targetMs).then((frame) => {
+        // drop the result if the tile was cleared or switched streams while
+        // the seek was running
+        if (info.live === live && live.stream === stream && live.seekTarget === targetMs && frame) {
+          drawLiveFrame(tileId, frame, liveVideoLabel(live, frame.ts));
+        }
+      }).catch(() => {});
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', initGrid);

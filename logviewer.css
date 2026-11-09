@@ -337,6 +337,36 @@ control-group>input {
   padding: 2px;
 }
 
+.video-live-controls {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 70%;
+}
+
+.video-name {
+  font-size: 11px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+canvas.video-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: none;
+}
+
+canvas.video-canvas.active {
+  display: block;
+}
+
 video {
   width: 100%;
   height: 100%;
