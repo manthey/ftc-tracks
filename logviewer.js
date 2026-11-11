@@ -62,6 +62,8 @@ const Live = {
   videoListing: null, // cached /api/videos response
   videoListedAt: 0,
   pollMs: 50, // 20 Hz tail
+  videoPollMs: 100, // video frames arrive at camera rate; polling at half the log rate is plenty
+  userWantsLive: true, // scrubbing to the end means follow live; scrubbing away means show that moment
   listMs: 1000, // listing only needs to notice new files
   listedAt: 0,
   nextPoll: 0, // absolute time the next poll is due (self-correcting pacing)
@@ -386,6 +388,9 @@ function addPanel(id) {
   }
   const el = Grid.addWidget({ w: GRID_COLS, h: 2, id: id, autoPosition: true });
   el.querySelector('.grid-stack-item-content').innerHTML = buildContent(id);
+  if (id.startsWith('video')) {
+    initVideoTile(id);
+  }
   fitGrid(true);
   showAddButtons();
   $('.close-btn', el).toggleClass('hidden', !GridEditMode);
@@ -449,12 +454,16 @@ function initGrid() {
     }
   });
   Grid.on('change', saveState);
-  // Initialize video tiles when added to grid
-  Grid.on('added', (el) => {
-    const id = el.gridstackNode.id;
-    if (id.startsWith('video')) {
-      initVideoTile(id);
-    }
+  // Initialize video tiles when added to the grid. gridstack v12 delivers
+  // (event, nodes); the tile content is built by addPanel after addWidget
+  // returns, so a tile whose content does not exist yet is initialized there
+  // instead.
+  Grid.on('added', (event, nodes) => {
+    (nodes || []).forEach((node) => {
+      if (node.id && node.id.startsWith('video')) {
+        initVideoTile(node.id);
+      }
+    });
   });
   document.body.addEventListener('click', (e) => {
     if (e.target.id === 'editgrid' || e.target.id === 'lockgrid') {
@@ -762,6 +771,12 @@ function drawGraph(graphNumber) {
     updateGraphCursor();
     return;
   }
+  if (State._graphApplying) {
+    // Plotly applies react/extendTraces asynchronously; drawing while one is
+    // still applying would race it (the trace and the bookkeeping disagree,
+    // which draws lines back over themselves). The next update catches up.
+    return;
+  }
   const logs = State.sortedLogs.filter((log) => log.selected);
   if (graphNumber === 0 && tryExtendGraph(gr, logs)) {
     updateGraphCursor();
@@ -788,6 +803,13 @@ function drawGraph(graphNumber) {
     });
   });
 
+  // remember what was drawn so a later live update can extend the traces
+  // incrementally instead of redrawing everything. The bookkeeping is only
+  // recorded once Plotly has actually applied the react, and only when no
+  // newer draw superseded it, so it always matches what the plot shows.
+  const drawnLengths = Object.fromEntries(logs.map((log) => [log.filename, log.data.length]));
+  State._graphApplying = true;
+  const epoch = (State._graphEpoch = (State._graphEpoch || 0) + 1);
   Plotly.react(
     'graph-plot',
     traces,
@@ -811,6 +833,14 @@ function drawGraph(graphNumber) {
     { responsive: true },
   )
     .then(() => {
+      State._graphApplying = false;
+      if (epoch === State._graphEpoch) {
+        State._graph = {
+          gr: { x: gr.x, category: gr.category, left: [...gr.left], right: [...gr.right] },
+          meta: traceMeta,
+          lengths: drawnLengths,
+        };
+      }
       // Plotly.react is asynchronous; the cursor cannot be positioned until the
       // new layout has been applied.
       const gd = document.getElementById('graph-plot');
@@ -819,14 +849,10 @@ function drawGraph(graphNumber) {
         gd.on('plotly_relayout', updateGraphCursor);
       }
       updateGraphCursor();
+    })
+    .catch(() => {
+      State._graphApplying = false;
     });
-  // remember what was drawn so a later live update can extend the traces
-  // incrementally instead of redrawing everything
-  State._graph = {
-    gr: { x: gr.x, category: gr.category, left: [...gr.left], right: [...gr.right] },
-    meta: traceMeta,
-    lengths: Object.fromEntries(logs.map((log) => [log.filename, log.data.length])),
-  };
 }
 
 /** Extend the live graph with just the newly appended rows. Returns false (and
@@ -837,7 +863,7 @@ function drawGraph(graphNumber) {
 function tryExtendGraph(gr, logs) {
   const prev = State._graph;
   const gd = document.getElementById('graph-plot');
-  if (!prev || !gd.data || !gd.data.length) {
+  if (!prev || State._graphApplying || !gd.data || !gd.data.length) {
     return false;
   }
   if (prev.gr.x !== gr.x || prev.gr.category !== gr.category
@@ -879,6 +905,12 @@ function tryExtendGraph(gr, logs) {
       return false;
     }
     const start = prev.lengths[m.log];
+    // the trace on the plot must actually contain everything up to start; a
+    // mismatch means an earlier apply was lost or superseded (e.g. a redraw
+    // replaced the data), and extending would draw back over itself
+    if (!gd.data[i].x || gd.data[i].x.length !== start) {
+      return false;
+    }
     if (log.data.length === start) {
       continue; // nothing new for this trace
     }
@@ -909,9 +941,27 @@ function tryExtendGraph(gr, logs) {
     indices.push(i);
   }
   if (indices.length) {
-    Plotly.extendTraces(gd, { x: xArrs, y: yArrs }, indices);
-    // extendTraces does not rescale; keep the live edge in view
-    Plotly.relayout(gd, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true });
+    State._graphApplying = true;
+    // keep the live edge in view: rescale only the axes this configuration
+    // actually has (referencing yaxis2 without a right axis errors), chained
+    // after the extend so Plotly applies them in order (layout-only, so it
+    // cannot desynchronize the trace bookkeeping)
+    const relayoutArgs = { 'xaxis.autorange': true };
+    if (gr.left.length) {
+      relayoutArgs['yaxis.autorange'] = true;
+    }
+    if (gr.right.length) {
+      relayoutArgs['yaxis2.autorange'] = true;
+    }
+    Promise.resolve(Plotly.extendTraces(gd, { x: xArrs, y: yArrs }, indices))
+      .then(() => {
+        State._graphApplying = false;
+        return Plotly.relayout(gd, relayoutArgs);
+      })
+      .catch(() => {
+        State._graphApplying = false;
+        State._graph = undefined; // force a self-healing full redraw
+      });
   }
   State._graph.lengths = lengths;
   return true;
@@ -1012,6 +1062,11 @@ function playUpdate() {
     // pausing; the next poll extends the log and playback continues from
     // there, so a poll that falls behind never looks like the end
   } else if (atEnd) {
+    if (liveLog) {
+      // pinned at the live edge of a live log: the video tiles show the
+      // newest frames again, the same as scrubbing to the end would
+      Live.userWantsLive = true;
+    }
     if (!State.continuous) {
       State.playing = false;
     } else if (newTime >= State.maxDuration + 3) {
@@ -1055,6 +1110,14 @@ function setTime(time, id, skipUpdate, skipBaseSet) {
     if (!skipBaseSet) {
       State.baseTime = State.time;
       State.referenceTime = Date.now();
+      // dragging the scrubber decides live mode: to (or near) the end means
+      // "follow the live edge" — the edge keeps moving, so a static
+      // comparison would lose live mode within a fraction of a second of any
+      // seek; anything earlier means "show that moment". Playback's own time
+      // updates skip this (skipBaseSet): under a slow link the pinned time
+      // can trail the moving edge by more than the threshold, and
+      // flip-flopping here would fire wasteful seeks against the stream.
+      Live.userWantsLive = State.time >= State.maxDuration - 0.5;
     }
     if (id !== 'time-value') {
       $('#time-value').val(State.time.toFixed(3));
@@ -1425,6 +1488,12 @@ function updateRobotImages() {
     }
   });
   if (qidx === 1) {
+    // no robot is on the field at this time: park the robot quad off field.
+    // quadData may hold only the field quad so far (nothing has ever been
+    // drawn), so the slot has to be created before it can be moved.
+    if (quadData.length <= qidx) {
+      quadData.push(Object.assign({}, quadData[quadData.length - 1]));
+    }
     quadData[qidx].ur = quadData[qidx].lr = quadData[qidx].ll = quadData[qidx].ul = { x: -1000, y: -1000 };
     qidx += 1;
   }
@@ -1477,8 +1546,7 @@ function initVideoTile(tileId) {
   const fileInput = panelEl.querySelector('.video-file-input');
   const videoContainer = panelEl.querySelector('.video-container');
   if (!fileInput || !videoContainer) {
-    console.error(`Video tile ${tileId} missing required elements`);
-    return;
+    return; // tile content not built yet (gridstack 'added' fires first)
   }
   let video = videoContainer.querySelector('video');
   if (!video) {
@@ -1502,13 +1570,14 @@ function initVideoTile(tileId) {
     offset: 0,
     canvas,
     nameEl: panelEl.querySelector('.video-name'),
-    liveBtn: panelEl.querySelector('.video-live-btn'),
     live: null,
   };
-  if (State.videos[tileId].liveBtn) {
-    State.videos[tileId].liveBtn.addEventListener('click', () => toggleVideoLive(tileId));
-  }
   fileInput.addEventListener('change', (e) => handleVideoFileSelect(e, tileId));
+  // a tile added while live is running joins the live streams immediately
+  if (Live.active && State.videos[tileId]) {
+    enableVideoLive(State.videos[tileId]);
+    ensureVideoPollLoop();
+  }
 }
 
 function handleVideoFileSelect(event, tileId) {
@@ -1586,6 +1655,10 @@ function stopLive() {
   Live.timer = null;
   Live.uiTimer = null;
   Live.busy = false;
+  // the video tiles went live with the log; they drop back to file mode
+  Object.values(State.videos).forEach((info) => detachVideoLive(info));
+  clearTimeout(Live.videoTimer);
+  Live.videoTimer = null;
   $('#live').text('Live');
   liveStatus('');
 }
@@ -1610,6 +1683,7 @@ async function toggleLive() {
   }
   Live.base = `${parsed[1] || 'http://'}${parsed[2]}:${parsed[3] || 6955}`;
   Live.active = true;
+  Live.userWantsLive = true; // live mode starts at the live edge
   Live.file = null;
   Live.log = null;
   Live.offset = 0;
@@ -1618,6 +1692,8 @@ async function toggleLive() {
   Live.nextPoll = 0;
   $('#live').text('Stop');
   liveStatus('connecting...');
+  // video goes live with the log: the tiles follow the run's camera streams
+  enableAllVideoLive();
   await livePoll();
 }
 
@@ -1626,6 +1702,7 @@ async function livePoll() {
     return;
   }
   Live.busy = true;
+  let progressed = true;
   try {
     // refresh the listing only often enough to notice new files; the tail
     // of the followed file is fetched every poll
@@ -1637,10 +1714,13 @@ async function livePoll() {
         throw new Error(`HTTP ${response.status}`);
       }
       const listing = await response.json();
-      // the most recent log: file names carry a zero-padded sequence number
-      // (log_NNNN_...), so the greatest name is the newest. mtime is not used
-      // because the robot clock sometimes starts at epoch 0.
-      const newest = listing.reduce(
+      // the most recent log that actually contains data: header-only files
+      // (an init that never logged anything) are skipped so a fresh empty run
+      // does not hide the previous run's data; once the new run writes real
+      // rows it becomes the newest file with data and takes over
+      const withData = listing.filter((entry) => entry.size >= 1024);
+      const pool = withData.length ? withData : listing;
+      const newest = pool.reduce(
         (best, entry) => (!best || entry.name > best.name ? entry : best),
         null,
       );
@@ -1675,18 +1755,23 @@ async function livePoll() {
       }
     }
     if (Live.file) {
-      await liveFetchMore();
+      progressed = await liveFetchMore();
     }
   } catch (err) {
     liveStatus(`unreachable (${err})`);
+    progressed = false; // back off while the robot cannot be reached
   } finally {
     Live.busy = false;
   }
   if (Live.active) {
     // self-correcting pacing: schedule against the absolute due time so a
-    // late timer or slow poll does not drift the average rate below pollMs
+    // late timer or slow poll does not drift the average rate below pollMs.
+    // When the tail had nothing new (past the end, or a still-partial line)
+    // stretch the interval so an idle or finished log cannot burn the link
+    // with empty polls; any progress snaps back to the full rate.
     const now = Date.now();
-    Live.nextPoll = (Live.nextPoll > now - 1000 ? Live.nextPoll : now) + Live.pollMs;
+    Live.quietMs = progressed ? Live.pollMs : Math.min(500, (Live.quietMs || Live.pollMs) * 2);
+    Live.nextPoll = (Live.nextPoll > now - 1000 ? Live.nextPoll : now) + Live.quietMs;
     Live.timer = setTimeout(livePoll, Math.max(0, Live.nextPoll - Date.now()));
   }
 }
@@ -1699,21 +1784,21 @@ async function liveFetchMore() {
     headers: { Range: `bytes=${Live.offset}-` },
   });
   if (response.status === 416) {
-    return; // range past the end: no new data
+    return false; // range past the end: no new data
   }
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!bytes.length) {
-    return;
+    return false;
   }
   const chunk = new TextDecoder().decode(bytes);
   // only consume through the last complete line: the tail of a file being
   // written may end mid-line, and a partial line would parse wrong
   const lastNewline = chunk.lastIndexOf('\n');
   if (lastNewline < 0) {
-    return; // nothing complete yet; retry from the same offset next poll
+    return false; // nothing complete yet; retry from the same offset next poll
   }
   const complete = Live.pending + chunk.slice(0, lastNewline + 1);
   if (!Live.log.append(complete, true)) {
@@ -1722,13 +1807,14 @@ async function liveFetchMore() {
     // back text so a corrupt file cannot stall following forever)
     if (complete.length < 5 * 1024 * 1024) {
       Live.pending = complete;
-      return;
+      return false; // held back for the next poll; no offset progress yet
     }
     Live.log.append(complete);
   }
   Live.pending = '';
   Live.offset += new TextEncoder().encode(complete).length;
   scheduleLiveUpdate();
+  return true;
 }
 
 /** Publish the growing LogRecord into the log list and refresh the UI at
@@ -1778,11 +1864,92 @@ class MjpegStream {
     this.tail = new Uint8Array(0); // bytes after the last complete frame
     this.busy = false;
     this.lastFrame = null; // {ts, bytes} of the most recent complete frame
+    // frames parsed so far, ascending by file offset ({ts, start, end} in
+    // absolute bytes). Seeking within the indexed region is a single small
+    // fetch instead of a binary search over the whole file.
+    this.index = [];
+    this.maxFrame = 0; // largest complete frame seen; cameras differ in resolution
   }
 
-  async fetchChunk(start, endExclusive) {
+  /** Position the stream at the last complete frame of the recording without
+   * reading the whole file. The tail window must hold one full frame plus the
+   * partial frame still being written, so twice the largest frame is enough;
+   * since the largest frame is unknown before parsing (and the cameras'
+   * resolutions differ), start generous and double back until a complete
+   * frame appears. Also used to resync after falling behind: at the live
+   * edge an unbounded backlog is never worth downloading, so the offset
+   * jumps to the tail and the skipped span is marked in the index. */
+  async syncToTail(isResync) {
+    let window = Math.max(512 * 1024, 2 * this.maxFrame);
+    for (;;) {
+      let from = Math.max(0, this.size - window);
+      if (isResync) {
+        from = Math.max(from, this.offset); // never re-parse indexed frames
+      }
+      if (from >= this.size) {
+        return; // empty file (or a stale listing); tail from the start
+      }
+      const bytes = await this.fetchChunk(from, this.size);
+      const parsed = extractMjpegFrames(bytes);
+      if (parsed.frames.length || from === 0) {
+        // frames before the window were skipped on a resync: mark the first
+        // indexed frame after the jump so seeks inside the skipped span know
+        // the index does not cover them
+        const gap = !!isResync && this.offset > 0 && from > this.offset;
+        let first = true;
+        for (const frame of parsed.frames) {
+          this.rememberFrame(frame.ts, from + frame.start, from + frame.end, gap && first);
+          first = false;
+        }
+        if (parsed.frames.length) {
+          this.lastFrame = parsed.frames[parsed.frames.length - 1];
+        }
+        this.offset = from + parsed.keepFrom;
+        this.tail = bytes.slice(parsed.keepFrom);
+        return;
+      }
+      window *= 2; // no complete frame yet: the frames are bigger than guessed
+      if (window > 64 * 1024 * 1024) {
+        // pathological (corrupt or enormous frames): tail from here anyway
+        this.offset = from;
+        this.tail = bytes;
+        return;
+      }
+    }
+  }
+
+  /** Add a parsed frame to the index (absolute byte offsets). The index is
+   * kept sorted by start and deduplicated, because seek probes parse frames
+   * out of order and may revisit the same frames; frames learned during a
+   * seek make the next seek into that region hit the index instead of the
+   * network. */
+  rememberFrame(ts, start, end, gap) {
+    const index = this.index;
+    let lo = 0;
+    let hi = index.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (index[mid].start < start) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if ((index[lo] && index[lo].start === start)
+        || (index[lo - 1] && index[lo - 1].start === start)) {
+      return; // already indexed
+    }
+    index.splice(lo, 0, { ts, start, end, gap: !!gap });
+    if (end - start > this.maxFrame) {
+      this.maxFrame = end - start;
+    }
+  }
+
+  async fetchChunk(start, endExclusive, signal) {
     const response = await fetch(`${this.base}/video/${encodeURIComponent(this.name)}`, {
       headers: { Range: `bytes=${start}-${endExclusive - 1}` },
+      priority: 'low', // video requests must never outrun the log polls
+      signal,
     });
     if (response.status === 416) {
       // range past the end (no new data); Content-Range carries the file size
@@ -1799,22 +1966,48 @@ class MjpegStream {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  /** Fetch new bytes and hand every newly completed frame to onFrame. */
+  /** Fetch new bytes and hand every newly completed frame to onFrame. The
+   * fetch is bounded so a video download never holds its connection long:
+   * small while keeping up with the camera, larger only to catch up when the
+   * stream has fallen behind the end of the file. */
   async poll() {
     if (this.busy) {
+      // a fetch has been in flight far too long (starved by seek probes or a
+      // saturated link): give up on it so the next poll can start fresh
+      if (this.fetchAbort && Date.now() - this.fetchStartedAt > 5000) {
+        const abort = this.fetchAbort;
+        this.fetchAbort = null;
+        abort.abort();
+      }
       return;
     }
     this.busy = true;
+    this.fetchAbort = new AbortController();
+    this.fetchStartedAt = Date.now();
     try {
-      const bytes = await this.fetchChunk(this.offset, this.offset + 1024 * 1024);
+      const behind = Math.max(0, (this.size || 0) - this.offset);
+      // At the live edge an unbounded backlog is never worth downloading: if
+      // the stream has fallen well behind (slow link sharing with the log
+      // polls), skip the skipped span entirely and resync to the tail so the
+      // lag stays bounded instead of growing for the rest of the run.
+      if (behind > Math.max(3 * 1024 * 1024, 4 * this.maxFrame)) {
+        await this.syncToTail(true);
+        return;
+      }
+      // keep up with the camera with small bounded fetches; reach further
+      // only to catch up when the stream has fallen well behind the end
+      const want = behind > 512 * 1024 ? 1024 * 1024 : 256 * 1024;
+      const bytes = await this.fetchChunk(this.offset, this.offset + want, this.fetchAbort.signal);
       if (!bytes.length) {
         return;
       }
+      const base = this.offset - this.tail.length; // file offset of combined[0]
       const combined = concatBytes(this.tail, bytes);
       const parsed = extractMjpegFrames(combined);
       this.offset += parsed.keepFrom;
       this.tail = combined.slice(parsed.keepFrom);
       for (const frame of parsed.frames) {
+        this.rememberFrame(frame.ts, base + frame.start, base + frame.end, false);
         this.lastFrame = frame;
         if (this.onFrame) {
           this.onFrame(frame);
@@ -1822,74 +2015,243 @@ class MjpegStream {
       }
     } finally {
       this.busy = false;
+      this.fetchAbort = null;
     }
   }
 
   /** Find the last frame whose timestamp is at or before tsMs (or, when the
-   * target predates every frame, the earliest frame), fetching only small
-   * ranges: a binary search over byte offsets, then one linear scan. */
-  async frameAt(tsMs) {
+   * target predates every frame, the earliest frame). Frames parsed while
+   * attached are indexed, so seeking inside the indexed region costs one
+   * small fetch of exactly one frame; earlier regions fall back to a binary
+   * search over byte offsets with small adaptive probes. */
+  async frameAt(tsMs, signal) {
     if (!this.size) {
       return null;
     }
-    const size = this.size;
-    const CHUNK = 256 * 1024;
-    let lo = 0; // the target frame starts at or after lo
-    let hi = size; // and before hi
-    let guard = 0;
-    while (hi - lo > CHUNK && guard++ < 40) {
-      const mid = lo + Math.floor((hi - lo) / 2);
-      const windowStart = Math.max(0, mid - CHUNK);
-      const probe = await this.fetchChunk(windowStart, Math.min(size, mid + CHUNK));
-      const midRel = mid - windowStart;
-      // the last frame that starts at or before mid
-      let frameStart = -1;
-      let pos = 0;
-      while (true) {
-        const start = findFrameStart(probe, pos);
-        if (start < 0 || start > midRel) {
-          break;
-        }
-        frameStart = start;
-        pos = start + 2;
-      }
-      if (frameStart < 0) {
-        break; // mid is inside the first frame or frames are huge; fall through to the linear scan
-      }
-      const ts = readFrameMs(probe, frameStart);
-      if (ts !== null && ts >= tsMs) {
-        hi = windowStart + frameStart;
-      } else {
-        const end = mjpegFrameEnd(probe, frameStart);
-        lo = end < 0 ? windowStart + frameStart + 1 : windowStart + end;
+    const entry = this.indexedFrameAt(tsMs);
+    if (entry) {
+      const bytes = await this.fetchChunk(entry.start, entry.end, signal);
+      if (bytes.length) {
+        return { ts: entry.ts, bytes };
       }
     }
-    // scan a window around the convergence point for the last frame at or
-    // before the target time
-    const from = Math.max(0, lo - CHUNK);
-    const to = Math.min(size, lo + 2 * CHUNK);
-    const window = await this.fetchChunk(from, to);
+    return this.searchFrameAt(tsMs, signal);
+  }
+
+  /** The index entry of the last frame at or before tsMs, or null when the
+   * index cannot answer (empty, or the target predates the indexed region). */
+  indexedFrameAt(tsMs) {
+    const index = this.index;
+    if (!index.length || index[0].ts === null || tsMs < index[0].ts) {
+      return null;
+    }
+    let lo = 0;
+    let hi = index.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (index[mid].ts !== null && index[mid].ts <= tsMs) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    const entry = index[lo];
+    if (entry.ts === null) {
+      return null;
+    }
+    const next = index[lo + 1];
+    if (next && next.gap && tsMs > entry.ts) {
+      return null; // the target lies inside a resync gap the index skips
+    }
+    if (tsMs > entry.ts && entry.end < this.size - 1024) {
+      // the target is past the last indexed frame and the index does not
+      // reach the file's tail: frames exist that the index never saw
+      return null;
+    }
+    return entry;
+  }
+
+  /** Binary search the unindexed region for the last frame at or before
+   * tsMs. Each step fetches just enough around the midpoint to identify the
+   * frame containing it, so a probe costs one or two frames rather than a
+   * fixed large window; the window grows only when a frame bigger than the
+   * probe (a higher-resolution camera) turns out to contain the midpoint. */
+  async searchFrameAt(tsMs, signal) {
+    const MIN_SPAN = 128 * 1024;
+    let lo = 0; // the target frame starts at or after lo
+    let hi = this.size; // and before hi
+    // the index bounds the search: the target frame cannot lie inside the
+    // indexed span (indexedFrameAt would have answered), so it is either
+    // after the last indexed frame or before the first one
+    const index = this.index;
+    if (index.length) {
+      const first = index[0];
+      const last = index[index.length - 1];
+      if (last.ts !== null && tsMs > last.ts) {
+        lo = Math.max(lo, last.end);
+        // the unindexed span beyond the index stays short while the tail
+        // poll maintains the index at the live edge (and each seek's scan
+        // extends it), so walking forward from the index edge beats a
+        // binary search descent through unindexed bytes
+        if (this.size - last.end <= 16 * 1024 * 1024) {
+          return this.scanForwardFrom(lo, tsMs, signal);
+        }
+      } else if (first.ts !== null && tsMs < first.ts) {
+        hi = Math.min(hi, first.start);
+      }
+    }
+    let guard = 0;
+    while (hi - lo > MIN_SPAN && guard++ < 48) {
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const frame = await this.frameContaining(mid, lo, signal);
+      if (!frame) {
+        break; // no boundary found near mid; the scan below settles it
+      }
+      if (frame.ts !== null && frame.ts >= tsMs) {
+        hi = frame.start;
+      } else {
+        lo = frame.end;
+      }
+    }
+    return this.scanForwardFrom(lo, tsMs, signal);
+  }
+
+  /** The index entry of the frame containing byte offset mid, or null when
+   * that span is not indexed (before the index, inside a resync gap). */
+  indexedFrameContaining(mid) {
+    const index = this.index;
+    let lo = 0;
+    let hi = index.length - 1;
+    let res = -1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (index[m].start <= mid) {
+        res = m;
+        lo = m + 1;
+      } else {
+        hi = m - 1;
+      }
+    }
+    if (res < 0) {
+      return null;
+    }
+    const entry = index[res];
+    return mid < entry.end ? entry : null; // null = mid in an unindexed gap
+  }
+
+  /** Fetch and parse the frame that contains byte offset mid (the last one
+   * starting at or before it, at or after minStart). Indexed spans answer
+   * without any fetch. The window grows one step at a time and only the
+   * missing side is fetched, so a probe costs a frame or two of traffic for
+   * typical frames and still works when a bigger-resolution camera's frame
+   * swallows the midpoint. Returns {start, end, ts} in absolute file
+   * offsets, or null when no frame boundary can be located within the
+   * growth limits. */
+  async frameContaining(mid, minStart, signal) {
+    const hit = this.indexedFrameContaining(mid);
+    if (hit) {
+      return { start: hit.start, end: hit.end, ts: hit.ts };
+    }
+    const STEP = 64 * 1024;
+    let lo = Math.max(minStart, mid - STEP);
+    let hi = Math.min(this.size, mid + STEP);
+    let bytes = await this.fetchChunk(lo, hi, signal);
+    for (;;) {
+      // the last frame that starts at or before mid
+      let pos = 0;
+      let start = -1;
+      for (;;) {
+        const found = findFrameStart(bytes, pos);
+        if (found < 0 || lo + found > mid) {
+          break;
+        }
+        start = found;
+        pos = found + 2;
+      }
+      if (start < 0) {
+        if (lo === 0 || mid - lo > 4 * 1024 * 1024) {
+          return null;
+        }
+        const newLo = Math.max(minStart, lo - STEP);
+        const head = await this.fetchChunk(newLo, lo, signal);
+        if (!head.length) {
+          return null;
+        }
+        bytes = concatBytes(head, bytes);
+        lo = newLo;
+        continue;
+      }
+      const end = mjpegFrameEnd(bytes, start);
+      if (end < 0) {
+        if (hi >= this.size || hi - lo > 16 * 1024 * 1024) {
+          return null;
+        }
+        const tail = await this.fetchChunk(hi, Math.min(this.size, hi + STEP), signal);
+        if (!tail.length) {
+          return null;
+        }
+        bytes = concatBytes(bytes, tail);
+        hi += tail.length;
+        continue;
+      }
+      const ts = readFrameMs(bytes, start);
+      // every frame parsed by a probe is indexed, so later seeks into this
+      // region hit the index instead of the network
+      this.rememberFrame(ts, lo + start, lo + end, false);
+      return { start: lo + start, end: lo + end, ts };
+    }
+  }
+  /** Walk forward from file offset lo through consecutive windows and
+   * return the last complete frame with ts at or before tsMs (or the first
+   * frame seen, when every ts is past the target). */
+  async scanForwardFrom(lo, tsMs, signal) {
+    const STEP = 256 * 1024;
     let best = null;
     let first = null;
-    let pos = 0;
-    while (true) {
-      const start = findFrameStart(window, pos);
-      if (start < 0) {
+    let pos = Math.max(0, lo);
+    while (pos < this.size) {
+      const to = Math.min(this.size, pos + STEP);
+      const bytes = await this.fetchChunk(pos, to, signal);
+      if (!bytes.length) {
         break;
       }
-      const end = mjpegFrameEnd(window, start);
-      if (end < 0) {
+      let p = 0;
+      let done = false;
+      let resumed = false;
+      for (;;) {
+        const start = findFrameStart(bytes, p);
+        if (start < 0) {
+          break;
+        }
+        const end = mjpegFrameEnd(bytes, start);
+        if (end < 0) {
+          // the frame continues into the next window: resume from its start
+          const next = pos + start;
+          if (next > pos) {
+            pos = next;
+            resumed = true;
+          }
+          break;
+        }
+        const ts = readFrameMs(bytes, start);
+        this.rememberFrame(ts, pos + start, pos + end, false);
+        if (first === null) {
+          first = { ts, bytes: bytes.slice(start, end) };
+        }
+        if (ts !== null && ts <= tsMs) {
+          best = { ts, bytes: bytes.slice(start, end) };
+          p = end;
+        } else {
+          done = true; // everything from here on is past the target
+          break;
+        }
+      }
+      if (done) {
         break;
       }
-      const ts = readFrameMs(window, start);
-      const frame = { ts, bytes: window.slice(start, end) };
-      if (first === null) {
-        first = frame;
+      if (!resumed) {
+        pos = to;
       }
-      if (ts !== null && ts <= tsMs) {
-        best = frame;
-      }
-      pos = end;
     }
     return best || first;
   }
@@ -1976,8 +2338,10 @@ function mjpegFrameEnd(bytes, soi) {
   return -1;
 }
 
-/** Pull every complete frame out of `bytes`; keepFrom is the offset from
- * which the remaining (incomplete) tail should be kept. */
+/** Pull every complete frame out of `bytes`; each frame carries its start
+ * and end (relative to `bytes`, end exclusive) so callers can index frames
+ * by absolute file offset. keepFrom is the offset from which the remaining
+ * (incomplete) tail should be kept. */
 function extractMjpegFrames(bytes) {
   const frames = [];
   let pos = 0;
@@ -1992,7 +2356,7 @@ function extractMjpegFrames(bytes) {
       keepFrom = start; // incomplete frame: keep it for the next poll
       break;
     }
-    frames.push({ ts: readFrameMs(bytes, start), bytes: bytes.slice(start, end) });
+    frames.push({ ts: readFrameMs(bytes, start), bytes: bytes.slice(start, end), start, end });
     pos = end;
     keepFrom = end;
   }
@@ -2003,21 +2367,44 @@ function liveVideoLabel(live, ts) {
   return `${live.name.replace(/\.mjpeg$/, '')} ${(ts / 1000).toFixed(2)}s`;
 }
 
+/** Draw the newest frame of a live tile, but at most every VIDEO_DRAW_MS:
+ * the per-frame BGR swap costs real main-thread time at 1280x720, so frames
+ * that arrive faster than the live picture needs are dropped rather than
+ * queued. A couple of frames per second is the target; the log updates keep
+ * priority. */
+const VIDEO_DRAW_MS = 250;
+function pumpLiveVideoFrame(tileId, live) {
+  const stream = live.stream;
+  if (!stream || !stream.lastFrame || !Live.userWantsLive) {
+    return;
+  }
+  if (stream.lastFrame.ts === live.shownTs) {
+    return; // already shown
+  }
+  const now = Date.now();
+  if (now - (live.lastDrawAt || 0) < VIDEO_DRAW_MS) {
+    return; // a frame was drawn too recently; the next poll tries again
+  }
+  live.lastDrawAt = now;
+  drawLiveFrame(tileId, stream.lastFrame, liveVideoLabel(live, stream.lastFrame.ts));
+}
+
 async function drawLiveFrame(tileId, frame, label) {
   const info = State.videos[tileId];
   if (!info || !info.live) {
     return;
   }
   const live = info.live;
+  const seq = (live.drawSeq = (live.drawSeq || 0) + 1);
   let bitmap;
   try {
     bitmap = await createImageBitmap(new Blob([frame.bytes], { type: 'image/jpeg' }));
   } catch (err) {
     return;
   }
-  if (!info.live) {
+  if (!info.live || live.drawSeq !== seq) {
     bitmap.close();
-    return; // detached while decoding
+    return; // superseded by a newer draw or detached while decoding
   }
   const canvas = live.canvas;
   if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
@@ -2027,13 +2414,14 @@ async function drawLiveFrame(tileId, frame, label) {
   const ctx = live.ctx || (live.ctx = canvas.getContext('2d'));
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
-  // the frames were encoded from a BGR buffer: reverse the channels
+  // the frames were encoded from a BGR buffer: reverse the channels.
+  // Working through a 32-bit view swaps R and B in one pass instead of
+  // touching every channel byte separately (1280x720 is 3.7M pixels).
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = image.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const red = data[i];
-    data[i] = data[i + 2];
-    data[i + 2] = red;
+  const px = new Uint32Array(image.data.buffer);
+  for (let i = 0; i < px.length; i++) {
+    const v = px[i];
+    px[i] = (v & 0xff00ff00) | ((v & 0x000000ff) << 16) | ((v & 0x00ff0000) >>> 16);
   }
   ctx.putImageData(image, 0, 0);
   live.shownTs = frame.ts;
@@ -2058,7 +2446,8 @@ async function videoListing() {
 }
 
 /** The videos worth following for this run, ascending by name: those whose
- * number matches the followed log when there are any, otherwise all. */
+ * number matches the followed log. Runs are associated strictly — a run with
+ * no videos clears the panels rather than showing some other run's stream. */
 function matchesLogNumber(name, logNumber) {
   return name.startsWith(`video_${logNumber}_`) || name === `video_${logNumber}.mjpeg`;
 }
@@ -2066,13 +2455,10 @@ function matchesLogNumber(name, logNumber) {
 function preferredVideos(listing) {
   const names = listing.map((entry) => entry.name).sort();
   const logNumber = Live.file ? (Live.file.match(/^log_(\d+)_/) || [])[1] : null;
-  if (logNumber) {
-    const matching = names.filter((name) => matchesLogNumber(name, logNumber));
-    if (matching.length) {
-      return matching;
-    }
+  if (!logNumber) {
+    return [];
   }
-  return names;
+  return names.filter((name) => matchesLogNumber(name, logNumber));
 }
 
 /** Blank a live tile: no stream to show for the current run. */
@@ -2081,15 +2467,21 @@ function clearVideoLive(info, message) {
   if (!live) {
     return;
   }
+  const hadStream = live.stream || live.name !== null;
+  if (live.seekAbort) {
+    live.seekAbort.abort();
+    live.seekAbort = null;
+  }
   live.stream = null;
   live.name = null;
   live.shownTs = null;
   live.shownFrame = null;
   live.seekTarget = null;
-  live.matchIdx = -1;
-  const ctx = live.ctx || (live.ctx = live.canvas.getContext('2d'));
-  ctx.clearRect(0, 0, live.canvas.width || 1, live.canvas.height || 1);
-  if (info.nameEl) {
+  if (hadStream) {
+    const ctx = live.ctx || (live.ctx = live.canvas.getContext('2d'));
+    ctx.clearRect(0, 0, live.canvas.width || 1, live.canvas.height || 1);
+  }
+  if (info.nameEl && info.nameEl.textContent !== message) {
     info.nameEl.textContent = message;
   }
 }
@@ -2106,33 +2498,39 @@ async function attachVideoStream(info, listing) {
     }
     const matches = preferredVideos(listing);
     if (!matches.length) {
-      clearVideoLive(info, 'no videos for this run');
+      clearVideoLive(info, 'no camera stream for this run');
       return;
     }
-    if (live.matchIdx < 0) {
-      // first attach: show a stream this run has that no other video tile is
-      // already showing, so two cameras end up on the two tiles
-      const claimed = new Set(Object.values(State.videos)
-        .filter((other) => other !== info && other.live && other.live.name)
-        .map((other) => other.live.name));
-      const free = matches.filter((name) => !claimed.has(name));
-      live.matchIdx = matches.indexOf(free.length ? free[0] : matches[0]);
-    } else {
-      live.matchIdx = live.matchIdx % matches.length;
+    if (live.name && live.stream && matches.includes(live.name)) {
+      const entry = listing.find((e) => e.name === live.name);
+      if (entry) {
+        live.stream.size = entry.size;
+      }
+      return; // already following one of this run's streams
     }
-    const name = matches[live.matchIdx];
-    if (name === live.name && live.stream) {
+    // claim a stream that no other tile is already showing, so the cameras
+    // spread across the tiles; a tile beyond the stream count stays blank
+    // instead of duplicating another tile's video. The claim is recorded
+    // synchronously (before the next await) so two tiles attaching on the
+    // same poll cannot both pick the same free stream.
+    const claimed = new Set(Object.values(State.videos)
+      .filter((other) => other !== info && other.live && other.live.name)
+      .map((other) => other.live.name));
+    const free = matches.filter((name) => !claimed.has(name));
+    if (!free.length) {
+      clearVideoLive(info, 'all camera streams are shown');
       return;
     }
-    live.name = name;
-    const entry = listing.find((e) => e.name === name);
-    live.stream = new MjpegStream(Live.base, name, entry ? entry.size : 0);
-    // start at the tail of an existing recording so attaching mid-run shows the
-    // live edge right away; seeking can still reach any earlier time
-    live.stream.offset = Math.max(0, live.stream.size - 1024 * 1024);
+    live.name = free[0];
+    const entry = listing.find((e) => e.name === live.name);
+    live.stream = new MjpegStream(Live.base, live.name, entry ? entry.size : 0);
+    // start at the tail of an existing recording so attaching mid-run shows
+    // the live edge right away without reading the whole file (robot videos
+    // can be hundreds of MB); seeking can still reach any earlier time
+    await live.stream.syncToTail(false);
     live.shownTs = null;
     if (info.nameEl) {
-      info.nameEl.textContent = name.replace(/\.mjpeg$/, '');
+      info.nameEl.textContent = live.name.replace(/\.mjpeg$/, '');
     }
   } finally {
     live.attaching = false;
@@ -2140,8 +2538,13 @@ async function attachVideoStream(info, listing) {
 }
 
 function detachVideoLive(info) {
-  if (!info.live) {
+  const live = info.live;
+  if (!live) {
     return;
+  }
+  if (live.seekAbort) {
+    live.seekAbort.abort(); // stop a scrubbed seek's probes from outliving the tile
+    live.seekAbort = null;
   }
   info.live = null;
   info.canvas.classList.remove('active');
@@ -2149,26 +2552,11 @@ function detachVideoLive(info) {
   if (info.nameEl) {
     info.nameEl.textContent = '';
   }
-  if (info.liveBtn) {
-    info.liveBtn.textContent = 'Live';
-  }
 }
 
-async function toggleVideoLive(tileId) {
-  const info = State.videos[tileId];
-  if (!info) {
-    return;
-  }
-  if (!Live.base) {
-    if (info.nameEl) {
-      info.nameEl.textContent = 'enter a robot ip in the file block first';
-    }
-    return;
-  }
-  if (info.live) {
-    // cycle to the next stream of this run
-    info.live.matchIdx += 1;
-    await attachVideoStream(info);
+/** Make one video tile follow the robot's camera streams. */
+function enableVideoLive(info) {
+  if (!info || info.live) {
     return;
   }
   info.live = {
@@ -2176,22 +2564,33 @@ async function toggleVideoLive(tileId) {
     ctx: null,
     name: null,
     stream: null,
-    matchIdx: -1,
     shownTs: null,
     seekTarget: null,
+    seeking: false,
+    atEdge: false,
   };
   info.element.style.display = 'none';
   info.canvas.classList.add('active');
-  if (info.liveBtn) {
-    info.liveBtn.textContent = 'Next';
-  }
-  await attachVideoStream(info);
-  if (!Live.videoTimer) {
-    videoPollLoop();
+}
+
+function ensureVideoPollLoop() {
+  if (!Live.videoTimer && Object.values(State.videos).some((info) => info.live)) {
+    // phase-offset the video loop from the log loop so their requests interleave
+    Live.videoTimer = setTimeout(videoPollLoop, Live.pollMs / 2);
   }
 }
 
-async function videoPollTile(info) {
+/** Make every video tile follow the robot's camera streams. Called when
+ * live following starts from the single Live control on the file panel:
+ * video goes live everywhere with the log, and each tile claims a distinct
+ * stream of the run as the listing shows them (two cameras end up on the
+ * two tiles). */
+function enableAllVideoLive() {
+  Object.values(State.videos).forEach(enableVideoLive);
+  ensureVideoPollLoop();
+}
+
+async function videoPollTile(tileId, info) {
   const live = info.live;
   if (!live || live.attaching) {
     return;
@@ -2203,37 +2602,61 @@ async function videoPollTile(info) {
     // the listing refresh is best effort; the stream poll below reports errors
   }
   if (listing) {
+    if (live.stream) {
+      // keep the file size fresh so the poll's catch-up logic knows how far
+      // behind the stream is
+      const entry = listing.find((e) => live.stream && e.name === live.stream.name);
+      if (entry) {
+        live.stream.size = entry.size;
+      }
+    }
     const matches = preferredVideos(listing);
     if (!matches.length) {
       // the current run has no videos (yet): clear the panel rather than
       // showing a stale stream from an earlier run; a later listing with
-      // videos reattaches
-      if (live.stream || live.name !== null) {
-        clearVideoLive(info, 'no videos for this run');
-      }
+      // videos reattaches. clearVideoLive is idempotent, so this is cheap
+      // to run on every listing refresh.
+      clearVideoLive(info, 'no camera stream for this run');
       return;
     }
     if (!live.name || !matches.includes(live.name)) {
-      // attach when the run's videos appear, or re-attach when the followed
-      // stream belongs to a different run (e.g. a new run started)
-      if (!live.name) {
-        live.matchIdx = -1;
+      // attach when the run's videos appear, when a stream with fewer claims
+      // frees up, or re-attach when the followed stream belongs to a
+      // different run (e.g. a new run started)
+      try {
+        await attachVideoStream(info, listing);
+      } catch (err) {
+        if (info.nameEl) {
+          info.nameEl.textContent = `error (${err})`;
+        }
       }
-      await attachVideoStream(info, listing);
     }
   }
   if (!info.live || !info.live.stream || info.live.attaching) {
     return;
   }
   const stream = info.live.stream;
+  if (!Live.userWantsLive) {
+    // scrubbing history: leave the link to the seek probes. The tail keeps
+    // growing; returning to the live edge resyncs with one small fetch.
+    return;
+  }
   try {
     await stream.poll();
   } catch (err) {
     // the stream may have been detached or replaced while the request was in
-    // flight; only report errors for the stream that is still current
-    if (info.live && info.live.stream === stream && info.nameEl) {
+    // flight, and the stuck-fetch watchdog aborts on purpose; only report
+    // errors for the stream that is still current and not deliberately stopped
+    if (info.live && info.live.stream === stream && info.nameEl
+        && err && err.name !== 'AbortError') {
       info.nameEl.textContent = `error (${err})`;
     }
+  }
+  // at the live edge, draw newly arrived frames here rather than waiting for
+  // the log playback loop, so the live picture keeps moving on its own (rate
+  // limited; see pumpLiveVideoFrame)
+  if (info.live && info.live.stream === stream) {
+    pumpLiveVideoFrame(tileId, info.live);
   }
 }
 
@@ -2242,43 +2665,81 @@ function videoPollLoop() {
   if (!Live.base) {
     return;
   }
-  const liveTiles = Object.values(State.videos).filter((info) => info.live);
+  const liveTiles = Object.entries(State.videos).filter(([, info]) => info.live);
   if (!liveTiles.length) {
     return;
   }
-  liveTiles.forEach((info) => {
-    videoPollTile(info);
+  // yield to log polls when possible, but never stall: log polls can be
+  // back-to-back at the poll rate, so if the video has not gotten a turn for
+  // 500 ms it proceeds regardless (bounded, low priority fetches)
+  const now = Date.now();
+  if (Live.busy && now - (Live.videoPolledAt || 0) < 500) {
+    Live.videoTimer = setTimeout(videoPollLoop, Live.pollMs);
+    return;
+  }
+  Live.videoPolledAt = now;
+  liveTiles.forEach(([tileId, info]) => {
+    videoPollTile(tileId, info);
   });
-  Live.videoTimer = setTimeout(videoPollLoop, Live.pollMs);
+  // video frames arrive at camera rate (~10 fps), so polling at half the log
+  // rate is plenty and keeps request pressure down
+  Live.videoTimer = setTimeout(videoPollLoop, Live.videoPollMs);
 }
 
 /** Keep each live video tile showing the frame that belongs to the current
- * playback time: the newest frame at the live edge, a seeked frame behind it. */
+ * playback time. Whether the tile is at the live edge is user intent
+ * (Live.userWantsLive, set by scrubbing to the end and cleared by scrubbing
+ * away) — comparing against the moving edge itself would drop live mode
+ * within a fraction of a second of any seek. The drawing for the edge itself
+ * happens after each video poll; seeks are serialized so a scrub cannot stack
+ * up a storm of range requests. */
 function syncLiveVideos(time) {
   Object.entries(State.videos).forEach(([tileId, info]) => {
     const live = info.live;
-    if (!live || !live.stream || !live.stream.lastFrame) {
+    if (!live) {
       return;
     }
     const targetMs = Math.round(time * 1000);
-    const last = live.stream.lastFrame;
-    if (targetMs >= last.ts - 250) {
-      // at the live edge: draw each new frame as it arrives
-      if (live.shownTs !== last.ts) {
-        drawLiveFrame(tileId, last, liveVideoLabel(live, last.ts));
-      }
+    const last = live.stream && live.stream.lastFrame;
+    if (!last) {
+      return;
+    }
+    if (Live.userWantsLive) {
+      // at the live edge: newest frame wins; drawing is rate limited and
+      // happens after each video poll, so the edge keeps moving even while
+      // playback is paused. A seek left over from scrubbing is aborted: its
+      // probes would otherwise keep crawling through the file and starve
+      // the tail fetches that feed this very edge.
       live.seekTarget = null;
-    } else if (live.seekTarget === null || Math.abs(targetMs - live.seekTarget) >= 200) {
-      // scrubbed away from the edge: find the frame at the playback time
+      if (live.seekAbort) {
+        live.seekAbort.abort();
+        live.seekAbort = null;
+      }
+    } else if (!live.seeking && (live.seekTarget === null || Math.abs(targetMs - live.seekTarget) >= 200)) {
+      // scrubbed away from the edge: find the frame at the playback time.
+      // Seeks are serialized (a scrub cannot stack up a storm of probes);
+      // when the user returns to the live edge the in-flight seek is
+      // aborted so its probes stop competing with the tail fetches.
       live.seekTarget = targetMs;
+      live.seeking = true;
       const stream = live.stream;
-      stream.frameAt(targetMs).then((frame) => {
-        // drop the result if the tile was cleared or switched streams while
-        // the seek was running
-        if (info.live === live && live.stream === stream && live.seekTarget === targetMs && frame) {
+      if (live.seekAbort) {
+        live.seekAbort.abort(); // a newer scrub supersedes the in-flight seek
+      }
+      const abort = (live.seekAbort = new AbortController());
+      stream.frameAt(targetMs, abort.signal).then((frame) => {
+        // drop the result if the tile was cleared or switched streams, or if
+        // the user returned to the live edge while the seek was running
+        if (info.live === live && live.stream === stream && !Live.userWantsLive && frame) {
           drawLiveFrame(tileId, frame, liveVideoLabel(live, frame.ts));
         }
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => {
+        if (live.seekAbort === abort) {
+          live.seekAbort = null;
+        }
+        live.seeking = false;
+        live.seekTarget = null;
+      });
     }
   });
 }

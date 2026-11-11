@@ -337,18 +337,12 @@ control-group>input {
   padding: 2px;
 }
 
-.video-live-controls {
+.video-name {
   position: absolute;
   top: 5px;
   right: 5px;
   z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   max-width: 70%;
-}
-
-.video-name {
   font-size: 11px;
   opacity: 0.8;
   white-space: nowrap;

@@ -46,7 +46,7 @@
     -->
       <div class="live-group">
         <input type="text" id="live-host" placeholder="robot ip" title="Robot or simulator address; port 6955 is added automatically" />
-        <button id="live" title="Load the most recent log from the robot and follow it as new data arrives">Live</button>
+        <button id="live" title="Load the most recent log from the robot and follow it as new data arrives; the video tiles follow the run's camera streams">Live</button>
         <span id="live-status"></span>
       </div>
       <div class="button-group">
@@ -119,10 +119,7 @@
   <div class="alwayshidden" id="videopanel">
     <button class="close-btn hidden" data-id="video">X</button>
     <input type="file" class="video-file-input" accept="video/*" />
-    <div class="video-live-controls">
-      <button class="video-live-btn" title="Follow the camera stream from the robot; click again to cycle through the streams of this run">Live</button>
-      <span class="video-name"></span>
-    </div>
+    <span class="video-name"></span>
     <div class="video-container"></div>
   </div>
   <div id="graph-modal">
